@@ -272,7 +272,13 @@ complete benchmark run for the current candidate.
 
 `Benchmark Publication` runs trusted `main` scripts on hosted runners. Successful
 PR attempts are checked against GitHub workflow and commit metadata. All jobs
-must succeed in one attempt. Use **Re-run all jobs** for publishable retries.
+must have a successful latest result through the selected attempt. Use
+**Re-run failed jobs** to retain successful configurations, or rerun an individual
+job and its dependents. Each retry replaces its configuration's result artifact.
+Collection combines the artifacts from that workflow run.
+A failed retry blocks publication even if an earlier
+attempt succeeded. Source revisions and benchmark definitions must match.
+Use **Re-run all jobs** when required artifacts have expired.
 The executed Benchmark workflow must match the trusted workflow. A workflow
 change can require archival recovery after maintainer review and merge.
 

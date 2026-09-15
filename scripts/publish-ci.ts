@@ -48,13 +48,20 @@ async function verifiedRun(runId: number, attempt: number) {
   if (workflow.encoding !== 'base64' || Buffer.from(workflow.content, 'base64').toString('utf8') !== readFileSync('.github/workflows/benchmark.yml', 'utf8')) {
     throw new Error('Benchmark workflow differs from the trusted workflow. Maintainer review and a fresh run are required.')
   }
-  const jobs: any[] = []
-  for (let page = 1; ; page++) {
-    const response = await github(`actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100&page=${page}`)
-    jobs.push(...response.jobs)
-    if (jobs.length >= response.total_count) break
-    if (!response.jobs.length) throw new Error('Incomplete workflow job list')
+  const latestJobs = new Map<string, any>()
+  for (let currentAttempt = attempt; currentAttempt >= 1; currentAttempt--) {
+    let fetched = 0
+    for (let page = 1; ; page++) {
+      const response = await github(`actions/runs/${runId}/attempts/${currentAttempt}/jobs?per_page=100&page=${page}`)
+      for (const job of response.jobs) {
+        if (!latestJobs.has(job.name)) latestJobs.set(job.name, job)
+      }
+      fetched += response.jobs.length
+      if (fetched >= response.total_count) break
+      if (!response.jobs.length) throw new Error('Incomplete workflow job list')
+    }
   }
+  const jobs = [...latestJobs.values()]
   const expected = new Map([
     ['eligibility', 1], ['configure', 1], ['producer', 1], ['prepare', 2],
     ['measure', publicationPolicy.benchmark.expectedConfigurations.length], ['collect', 1], ['Benchmark Status', 1],
@@ -62,7 +69,7 @@ async function verifiedRun(runId: number, attempt: number) {
   for (const [name, count] of expected) {
     const matching = jobs.filter(job => job.name === name || job.name.startsWith(`${name} (`))
     if (matching.length !== count || matching.some(job => job.conclusion !== 'success')) {
-      throw new Error(`Attempt ${runId}.${attempt} requires ${count} successful ${name} jobs. Rerun all jobs.`)
+      throw new Error(`Run ${runId} through attempt ${attempt} requires ${count} successful ${name} jobs. Rerun the failed jobs.`)
     }
   }
   return run

@@ -67,6 +67,7 @@ jobs:
           name: run-identity
           path: artifacts/run.json
           if-no-files-found: error
+          overwrite: true
 
   # Build guest inputs once on KVM for all measurement configurations.
   producer:
@@ -101,6 +102,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: guest-inputs
+          overwrite: true
           path: |
             js/src/wit/handler_wit.wasm
             js/default/handler.wasm
@@ -191,6 +193,7 @@ jobs:
         if: always()
         with:
           name: result-${{ matrix.platform }}-${{ matrix.runtime }}-${{ matrix.strategy }}
+          overwrite: true
           path: results/
           if-no-files-found: error
           retention-days: 14
@@ -216,8 +219,8 @@ jobs:
         with:
           pattern: result-*
           path: results/
-          merge-multiple: true
-      - run: node scripts/merge-results.ts --output run.json results/*/bundle.json
+      - name: Merge measurements
+        run: node scripts/merge-results.ts --output run.json results/*/*/bundle.json
       - uses: actions/upload-artifact@v7
         with:
           name: run-${{ github.run_id }}-${{ github.run_attempt }}

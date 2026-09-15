@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { inspect, parseArgs } from 'node:util'
 import { z } from 'zod'
 import { benchmark, catalog, runnerPools, runtimes, serverFlavor } from '../shared/catalog.ts'
 import { parseRunBundle, strategySchema, type RunBundle } from '../shared/results.ts'
@@ -26,6 +26,11 @@ mkdirSync(directory, { recursive: true })
 const local = values['local-bundle'] ? parseRunBundle(JSON.parse(readFileSync(values['local-bundle'], 'utf8'))) : undefined
 if (local && local.source !== 'local') throw new Error('Local collection requires a local bundle')
 const run = local?.run ?? JSON.parse(readFileSync(values.run, 'utf8')) as RunBundle['run']
+if (!local && process.env.GITHUB_ACTIONS) {
+  if (run.id !== process.env.GITHUB_RUN_ID || run.commit.sha !== process.env.GITHUB_SHA) throw new Error('Run identity differs from the current workflow')
+  run.attempt = z.coerce.number().int().positive().parse(process.env.GITHUB_RUN_ATTEMPT)
+  run.workflow.url = `https://github.com/${run.pullRequest!.repository}/actions/runs/${run.id}/attempts/${run.attempt}`
+}
 const executable = resolve('artifacts/bin', serverFlavor(runtime.id), 'http-bench')
 const oha = 'oha'
 const runner = await runnerMetadata(platform, !!local)
@@ -45,7 +50,7 @@ async function bounded<Value>(promise: Promise<Value>, milliseconds: number, mes
   let timer: ReturnType<typeof setTimeout>
   try {
     return await Promise.race([promise, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), milliseconds)
+      timer = setTimeout(() => reject(new Error(`${message} after ${milliseconds}ms`)), milliseconds)
     })])
   } finally {
     clearTimeout(timer!)
@@ -55,7 +60,10 @@ async function bounded<Value>(promise: Promise<Value>, milliseconds: number, mes
 function closed(child: ChildProcess) {
   return new Promise<number | null>((resolve, reject) => {
     child.once('error', reject)
-    child.once('close', code => resolve(code))
+    child.once('close', (code, signal) => {
+      if (signal) reject(new Error(`${child.spawnfile} terminated by ${signal}`))
+      else resolve(code)
+    })
   })
 }
 
@@ -114,31 +122,37 @@ try {
   const exitCode = await bounded(Promise.race([loadClosed, unexpectedExit, aborted]), ((settings.requestCount ? settings.clientTimeoutSeconds : settings.durationSeconds) + 60) * 1000, 'Load generator timed out')
   if (exitCode !== 0) throw new Error(`oha exited with ${exitCode}`)
   server.stdin!.end('shutdown\n')
-  if (await bounded(serverClosed, 10000, 'Server shutdown timed out') !== 0) throw new Error('Server shutdown failed')
+  const shutdownCode = await bounded(serverClosed, 10000, 'Server shutdown timed out')
+  if (shutdownCode !== 0) throw new Error(`Server shutdown failed with exit code ${shutdownCode}`)
   const performance = JSON.parse(readFileSync(performancePath, 'utf8'))
-  const memory = JSON.parse(readFileSync(memoryPath, 'utf8'))
-  rawOutputs.push({ tool: 'oha', format: 'json', content: performance }, { tool: 'sysinfo', format: 'json', content: memory })
+  rawOutputs.push({ tool: 'oha', format: 'json', content: performance })
+  const requestDetails = `HTTP statuses: ${JSON.stringify(performance?.statusCodeDistribution)}. Request errors: ${JSON.stringify(performance?.errorDistribution)}. Client timeout: ${settings.clientTimeoutSeconds}s. Concurrency: ${settings.concurrency}.`
   const nonnegative = z.number().finite().nonnegative()
-  const report = z.object({
+  const parsedReport = z.object({
     summary: z.object({ requestsPerSec: nonnegative.positive() }),
     latencyPercentiles: z.object({ p50: nonnegative, p95: nonnegative, 'p99.99': nonnegative }),
     statusCodeDistribution: z.record(z.string(), nonnegative.int()), errorDistribution: z.record(z.string(), nonnegative.int()),
-  }).parse(performance)
+  }).safeParse(performance)
+  if (!parsedReport.success) throw new Error(`Invalid oha report. ${requestDetails}`, { cause: parsedReport.error })
+  const report = parsedReport.data
+  if (!report.statusCodeDistribution['200'] || Object.entries(report.statusCodeDistribution).some(([status, count]) => status !== '200' && count > 0)) throw new Error(`Unexpected HTTP status distribution. ${requestDetails}`)
+  if (Object.entries(report.errorDistribution).some(([error, count]) => count > 0 && error !== 'aborted due to deadline')) throw new Error(`Request errors occurred. ${requestDetails}`)
+  if ((report.errorDistribution['aborted due to deadline'] ?? 0) > settings.concurrency) throw new Error(`Deadline cancellations exceed concurrency. ${requestDetails}`)
+  const memory = JSON.parse(readFileSync(memoryPath, 'utf8'))
+  rawOutputs.push({ tool: 'sysinfo', format: 'json', content: memory })
   const peak = z.array(z.object({ name: z.literal('Peak Resident Memory Usage'), unit: z.literal('bytes'), value: nonnegative.positive() })).length(1).parse(memory)[0]!
-  if (!report.statusCodeDistribution['200'] || Object.entries(report.statusCodeDistribution).some(([status, count]) => status !== '200' && count > 0)) throw new Error('Unexpected HTTP status distribution')
-  if (Object.entries(report.errorDistribution).some(([error, count]) => count > 0 && error !== 'aborted due to deadline')) throw new Error('Request errors occurred')
-  if ((report.errorDistribution['aborted due to deadline'] ?? 0) > settings.concurrency) throw new Error('Unexpected deadline cancellation count')
   bundle.measurements.push({
     id: configuration, runnerId: runner.id, runtimeId: runtime.id, strategy, status: 'success', rawOutputs,
     values: { rps: report.summary.requestsPerSec, memory: peak.value / 1024 ** 2, p50: report.latencyPercentiles.p50 * 1000, p95: report.latencyPercentiles.p95 * 1000, p9999: report.latencyPercentiles['p99.99'] * 1000 },
   })
 } catch (error) {
   console.error(`Benchmark failed: ${configuration}`, error)
+  const reason = error instanceof Error && error.cause === undefined ? String(error) : inspect(error, { depth: 5, colors: false })
   if (process.env.GITHUB_ACTIONS) {
-    const message = String(error).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')
+    const message = reason.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')
     console.error(`::error::${configuration}: ${message}`)
   }
-  bundle.measurements.push({ id: configuration, runnerId: runner.id, runtimeId: runtime.id, strategy, status: 'failed', reason: String(error), rawOutputs })
+  bundle.measurements.push({ id: configuration, runnerId: runner.id, runtimeId: runtime.id, strategy, status: 'failed', reason, rawOutputs })
   process.exitCode = 1
 } finally {
   if (load && load.exitCode === null && load.signalCode === null) load.kill()
@@ -159,5 +173,18 @@ try {
   log.end()
   process.removeListener('SIGINT', interrupt)
   process.removeListener('SIGTERM', interrupt)
+  for (const [tool, path] of [['oha', performancePath], ['sysinfo', memoryPath]] as const) {
+    if (rawOutputs.some(output => output.tool === tool) || !existsSync(path)) continue
+    try {
+      const content = readFileSync(path, 'utf8')
+      try {
+        rawOutputs.push({ tool, format: 'json', content: JSON.parse(content) })
+      } catch {
+        rawOutputs.push({ tool, format: 'text', content })
+      }
+    } catch (error) {
+      console.error(`Failed to retain ${tool} output at ${path}`, error)
+    }
+  }
   writeFileSync(resolve(directory, 'bundle.json'), `${JSON.stringify(parseRunBundle(bundle), null, 2)}\n`)
 }

@@ -9,6 +9,11 @@ parser when loading bundles.
 Store one immutable JSON bundle per workflow run and attempt. The identity is
 `run.id` plus `run.attempt`. A retry has its own bundle. Commit SHAs may repeat.
 
+`run.attempt` identifies the collection attempt. Partial retries retain earlier
+successful measurements from that workflow run. Source revisions and benchmark
+definitions must match across all shards. Each configuration has a stable artifact
+name. A retry replaces that artifact. Collection rejects duplicate configurations.
+
 | Field | Contents |
 | --- | --- |
 | `schemaVersion` | Storage format version, currently `1` |
@@ -20,7 +25,7 @@ Store one immutable JSON bundle per workflow run and attempt. The identity is
 | `catalog.platforms` | Stable platform IDs and display labels |
 | `catalog.metrics` | Metric IDs, units, direction and measurement method versions |
 | `benchmark` | Workload ID, version, settings, required metrics and expected matrix |
-| `runners` | Runner records scoped to this workflow attempt |
+| `runners` | Runner records for the selected measurements |
 | `measurements` | Results linked to a runner and runtime |
 
 Runtime and metric IDs are extensible strings. Lifecycle IDs are `reload`,

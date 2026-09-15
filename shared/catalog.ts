@@ -50,7 +50,7 @@ export const benchmark = {
   id: 'http-redirect', version: 2,
   settings: {
     durationSeconds: 60, concurrency: 50, poolSize: 4, workerThreads: 'available-parallelism', workerReadiness: 'all-workers',
-    sandboxTimeoutMs: 1000, timeoutCheckIntervalMs: 10, clientTimeoutSeconds: 10,
+    sandboxTimeoutMs: 1000, timeoutCheckIntervalMs: 10, clientTimeoutSeconds: 30,
     memorySampleIntervalMs: 500, memorySampleAtShutdown: true, readinessRequests: 1, warmupRequests: 0,
     waitOngoingRequests: false, repetitions: 1, hyperlightAotMapping: 'linux-file-mapping-per-worker',
   },
