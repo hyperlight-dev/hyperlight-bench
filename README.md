@@ -1,5 +1,7 @@
 # Hyperlight HTTP Benchmarks
 
+[View the dashboard](https://hyperlight-dev.github.io/hyperlight-bench/).
+
 HTTP benchmarks and a results dashboard for Hyperlight.
 Compare throughput, latency, and memory use across JavaScript and WebAssembly
 runtimes on Linux KVM and MSHV.
