@@ -77,7 +77,7 @@ try {
     ...z.object({
       durationSeconds: z.number().int().nonnegative(),
       concurrency: z.number().int().positive(),
-      clientTimeoutSeconds: z.number().int().positive(),
+      clientTimeoutSeconds: z.number().int().positive().nullable(),
       requestCount: z.literal(1).optional(),
     }).parse(bundle.benchmark.settings),
   }
@@ -116,17 +116,19 @@ try {
   if (response.status !== 200) throw new Error(`Readiness request returned ${response.status}`)
   z.object({ uri: z.literal('/redirected.html') }).parse(await response.json())
   const limit = settings.requestCount ? ['-n', String(settings.requestCount)] : ['-z', `${settings.durationSeconds}s`]
-  load = spawn(oha, [url, ...limit, '-c', String(settings.concurrency), '-t', `${settings.clientTimeoutSeconds}s`, '--no-tui', '--output-format', 'json', '--output', performancePath], { stdio: ['ignore', 'inherit', 'inherit'] })
+  if (settings.requestCount && settings.clientTimeoutSeconds === null) throw new Error('Request-count runs require a client timeout')
+  const clientTimeout = settings.clientTimeoutSeconds === null ? [] : ['-t', `${settings.clientTimeoutSeconds}s`]
+  load = spawn(oha, [url, ...limit, '-c', String(settings.concurrency), ...clientTimeout, '--no-tui', '--output-format', 'json', '--output', performancePath], { stdio: ['ignore', 'inherit', 'inherit'] })
   loadClosed = closed(load)
   loadClosed.catch(() => {})
-  const exitCode = await bounded(Promise.race([loadClosed, unexpectedExit, aborted]), ((settings.requestCount ? settings.clientTimeoutSeconds : settings.durationSeconds) + 60) * 1000, 'Load generator timed out')
+  const exitCode = await bounded(Promise.race([loadClosed, unexpectedExit, aborted]), ((settings.requestCount ? settings.clientTimeoutSeconds! : settings.durationSeconds) + 60) * 1000, 'Load generator timed out')
   if (exitCode !== 0) throw new Error(`oha exited with ${exitCode}`)
   server.stdin!.end('shutdown\n')
   const shutdownCode = await bounded(serverClosed, 10000, 'Server shutdown timed out')
   if (shutdownCode !== 0) throw new Error(`Server shutdown failed with exit code ${shutdownCode}`)
   const performance = JSON.parse(readFileSync(performancePath, 'utf8'))
   rawOutputs.push({ tool: 'oha', format: 'json', content: performance })
-  const requestDetails = `HTTP statuses: ${JSON.stringify(performance?.statusCodeDistribution)}. Request errors: ${JSON.stringify(performance?.errorDistribution)}. Client timeout: ${settings.clientTimeoutSeconds}s. Concurrency: ${settings.concurrency}.`
+  const requestDetails = `HTTP statuses: ${JSON.stringify(performance?.statusCodeDistribution)}. Request errors: ${JSON.stringify(performance?.errorDistribution)}. Client timeout: ${settings.clientTimeoutSeconds === null ? 'unlimited' : `${settings.clientTimeoutSeconds}s`}. Concurrency: ${settings.concurrency}.`
   const nonnegative = z.number().finite().nonnegative()
   const parsedReport = z.object({
     summary: z.object({ requestsPerSec: nonnegative.positive() }),

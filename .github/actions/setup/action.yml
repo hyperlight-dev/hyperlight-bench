@@ -112,7 +112,7 @@ runs:
       echo "✅ Cargo is available: $(cargo --version)"
 
       # Required tool versions (crates.io)
-      WASM_TOOLS_REQUIRED_VERSION="1.243.0"
+      WASM_TOOLS_MIN_VERSION="1.259.0"
       CARGO_HYPERLIGHT_REQUIRED_VERSION="0.1.14"
       OHA_REQUIRED_VERSION="1.9.0"
 
@@ -127,19 +127,18 @@ runs:
       COMPONENTIZE_QJS_REQUIRED_VERSION="0.3.0"
       
       if [[ "${{ inputs.BENCH_ONLY }}" != "true" ]]; then
-        # Install wasm-tools if not cached or wrong version
         if command -v wasm-tools &> /dev/null; then
           WASM_TOOLS_CURRENT_VERSION=$(wasm-tools --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           WASM_TOOLS_CURRENT_VERSION=${WASM_TOOLS_CURRENT_VERSION:-"unknown"}
-          if [ "$WASM_TOOLS_CURRENT_VERSION" = "$WASM_TOOLS_REQUIRED_VERSION" ]; then
+          if [[ "$WASM_TOOLS_CURRENT_VERSION" != "unknown" ]] && printf '%s\n' "$WASM_TOOLS_MIN_VERSION" "$WASM_TOOLS_CURRENT_VERSION" | sort -V -C; then
             echo "wasm-tools $WASM_TOOLS_CURRENT_VERSION already available (cached)"
           else
-            echo "wasm-tools version mismatch: found $WASM_TOOLS_CURRENT_VERSION, need $WASM_TOOLS_REQUIRED_VERSION. Reinstalling..."
-            cargo install wasm-tools@$WASM_TOOLS_REQUIRED_VERSION --locked --force
+            echo "wasm-tools $WASM_TOOLS_CURRENT_VERSION does not meet minimum $WASM_TOOLS_MIN_VERSION. Installing..."
+            cargo install wasm-tools@$WASM_TOOLS_MIN_VERSION --locked --force
           fi
         else
-          echo "Installing wasm-tools $WASM_TOOLS_REQUIRED_VERSION..."
-          cargo install wasm-tools@$WASM_TOOLS_REQUIRED_VERSION --locked
+          echo "Installing wasm-tools $WASM_TOOLS_MIN_VERSION..."
+          cargo install wasm-tools@$WASM_TOOLS_MIN_VERSION --locked
         fi
 
         # Install hyperlight-wasm-aot if not cached or wrong version.

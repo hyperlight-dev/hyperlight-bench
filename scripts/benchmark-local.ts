@@ -37,7 +37,7 @@ async function main() {
     ...benchmark.settings,
     durationSeconds: values.smoke ? 0 : positive(values.duration, benchmark.settings.durationSeconds, 'Duration'),
     concurrency: values.smoke ? 1 : positive(values.concurrency, benchmark.settings.concurrency, 'Concurrency'),
-    clientTimeoutSeconds: values.smoke ? 120 : positive(values['client-timeout'], benchmark.settings.clientTimeoutSeconds, 'Client timeout'),
+    clientTimeoutSeconds: values.smoke ? 120 : values['client-timeout'] === undefined ? benchmark.settings.clientTimeoutSeconds : positive(values['client-timeout'], 120, 'Client timeout'),
     ...(values.smoke ? { requestCount: 1 } : {}),
   }
   if (selected.some(runtime => runtime.id.startsWith('hyperlight-'))) {
