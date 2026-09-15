@@ -1,0 +1,83 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [PR Preview, Benchmark Publication, Benchmark Policy]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: pages-deployment
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      trusted-sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run build -- --base ./
+        env:
+          VITE_HISTORY_URL: ./data/index.json
+      - run: node scripts/site-ci.ts assemble
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site-state
+          path: site-state.json
+          if-no-files-found: error
+
+  deploy:
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      issues: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.assemble.outputs.trusted-sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: site-state
+      - run: node scripts/site-ci.ts verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Deploy current site
+        id: deployment
+        uses: actions/deploy-pages@v4

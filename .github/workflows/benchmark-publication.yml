@@ -1,0 +1,38 @@
+name: Benchmark Publication
+
+on:
+  workflow_run:
+    workflows: [Benchmark]
+    types: [completed]
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: benchmark-data-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: gh auth setup-git
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: node scripts/publish-ci.ts
+        env:
+          GH_TOKEN: ${{ github.token }}

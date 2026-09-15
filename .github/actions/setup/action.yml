@@ -1,0 +1,240 @@
+name: Setup environment
+description: Setup Rust and required tools for benchmarking
+
+inputs:
+  HYPERVISOR:
+    description: 'hypervisor to use (kvm, mshv, mshv3)'
+    required: true
+  CPU_VENDOR:
+    description: 'CPU vendor to use (amd, intel)'
+    required: true
+  CACHE_SCOPE:
+    description: 'cache scope and version'
+    required: false
+    default: 'build-v2'
+  SAVE_CACHES:
+    description: 'save updated caches from a designated writer job'
+    required: false
+    default: 'false'
+  BENCH_ONLY:
+    description: 'install only tools required to run benchmarks'
+    required: false
+    default: 'false'
+
+outputs:
+  CACHE_HIT:
+    description: 'whether the Rust cache had an exact match'
+    value: ${{ steps.rust-cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+  # - name: Install Rust
+  #   uses: dtolnay/rust-toolchain@1.85
+
+  - name: check if rust/cargo is on path
+    shell: bash
+    run: |
+      export CARGO_HOME=/opt/cargo
+      export PATH="$CARGO_HOME/bin:$PATH"
+      echo "CARGO_HOME=$CARGO_HOME" >> $GITHUB_ENV
+      echo "PATH=$PATH" >> $GITHUB_ENV
+
+      echo "Checking environment variables..."
+      if [ -n "$CARGO_HOME" ]; then
+        echo "CARGO_HOME is set: $CARGO_HOME"
+      else
+        echo "CARGO_HOME is not set or empty"
+      fi
+      
+      if [ -n "$RUSTUP_HOME" ]; then
+        echo "RUSTUP_HOME is set: $RUSTUP_HOME"
+      else
+        echo "RUSTUP_HOME is not set or empty"
+      fi
+      
+      echo "PATH before sourcing: $PATH"
+      
+      # Check and source cargo environment
+      echo "Checking cargo environment files..."
+      if [ -f /opt/cargo/env ]; then
+        echo "Found /opt/cargo/env, sourcing it..."
+        cat /opt/cargo/env
+        source /opt/cargo/env
+      else
+        echo "/opt/cargo/env not found"
+      fi
+      
+      cat /etc/profile.d/cargo_env.sh || echo "No cargo_env.sh found"
+      
+      echo "PATH after sourcing: $PATH"
+      
+      echo "Checking if Rust and Cargo are now available..."
+      if command -v rustc &> /dev/null && command -v cargo &> /dev/null; then
+        echo "✅ Rust and Cargo are available on PATH"
+        echo "rustc version: $(rustc --version)"
+        echo "cargo version: $(cargo --version)"
+        # Make PATH available to subsequent steps
+        echo "PATH=$PATH" >> $GITHUB_ENV
+      else
+        echo "❌ Rust or Cargo is still not available on PATH"
+      fi
+
+  # Remove after runner images include the /opt/cargo ownership fix.
+  - name: Make Cargo home writable
+    shell: bash
+    run: sudo chown -R "$USER" "$CARGO_HOME"
+
+  - name: Restore Rust cache
+    id: rust-cache
+    uses: Swatinem/rust-cache@v2
+    with:
+      shared-key: ${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}
+      workspaces: |
+        . -> target
+        crates/handler-rs -> target
+        crates/hyperlight-dummy-guest -> target
+      save-if: ${{ inputs.SAVE_CACHES == 'true' }}
+
+  - name: Install Rust tools
+    shell: bash
+    run: |
+      echo "Checking for cached tools..."
+      ls -la /opt/cargo/bin/ || echo "/opt/cargo/bin/ doesn't exist yet"
+      
+      # Verify cargo is available (should be from previous step via GITHUB_ENV)
+      if ! command -v cargo &> /dev/null; then
+        echo "❌ Cargo not available, PATH may not have been set correctly"
+        echo "Current PATH: $PATH"
+        exit 1
+      fi
+      
+      echo "✅ Cargo is available: $(cargo --version)"
+
+      # Required tool versions (crates.io)
+      WASM_TOOLS_REQUIRED_VERSION="1.243.0"
+      CARGO_HYPERLIGHT_REQUIRED_VERSION="0.1.14"
+      OHA_REQUIRED_VERSION="1.9.0"
+
+      # hyperlight-wasm-aot: supports either a crates.io version (e.g. "0.15.0")
+      # or a git revision (e.g. "734fb51"). HYPERLIGHT_GIT_URL is only used in git mode.
+      # IMPORTANT: hyperlight-wasm-aot bundles a specific wasmtime version internally.
+      # The wasmtime-aot benchmark handler loads .aot files using its own wasmtime dep,
+      # so the pinned wasmtime version in crates/server/Cargo.toml MUST match exactly.
+      HYPERLIGHT_REQUIRED_VERSION="0.15.0"
+      HYPERLIGHT_GIT_URL="https://github.com/hyperlight-dev/hyperlight-wasm"
+
+      COMPONENTIZE_QJS_REQUIRED_VERSION="0.3.0"
+      
+      if [[ "${{ inputs.BENCH_ONLY }}" != "true" ]]; then
+        # Install wasm-tools if not cached or wrong version
+        if command -v wasm-tools &> /dev/null; then
+          WASM_TOOLS_CURRENT_VERSION=$(wasm-tools --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          WASM_TOOLS_CURRENT_VERSION=${WASM_TOOLS_CURRENT_VERSION:-"unknown"}
+          if [ "$WASM_TOOLS_CURRENT_VERSION" = "$WASM_TOOLS_REQUIRED_VERSION" ]; then
+            echo "wasm-tools $WASM_TOOLS_CURRENT_VERSION already available (cached)"
+          else
+            echo "wasm-tools version mismatch: found $WASM_TOOLS_CURRENT_VERSION, need $WASM_TOOLS_REQUIRED_VERSION. Reinstalling..."
+            cargo install wasm-tools@$WASM_TOOLS_REQUIRED_VERSION --locked --force
+          fi
+        else
+          echo "Installing wasm-tools $WASM_TOOLS_REQUIRED_VERSION..."
+          cargo install wasm-tools@$WASM_TOOLS_REQUIRED_VERSION --locked
+        fi
+
+        # Install hyperlight-wasm-aot if not cached or wrong version.
+        # Can use either git revision or version (e.g., "0.15.0" or "734fb51")
+        # Check if this looks like a git revision (hex chars) or version
+        if [[ "$HYPERLIGHT_REQUIRED_VERSION" =~ ^[a-f0-9]+$ ]]; then
+          # Git mode - always reinstall since we can't check git revision from binary
+          echo "Installing hyperlight-wasm-aot from git revision $HYPERLIGHT_REQUIRED_VERSION..."
+          cargo install hyperlight-wasm-aot --git "$HYPERLIGHT_GIT_URL" --rev "$HYPERLIGHT_REQUIRED_VERSION" --locked --force
+        else
+          # Version mode - check if already installed
+          if command -v hyperlight-wasm-aot &> /dev/null; then
+            CURRENT_VERSION=$(hyperlight-wasm-aot --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            if [ "$CURRENT_VERSION" = "$HYPERLIGHT_REQUIRED_VERSION" ]; then
+              echo "hyperlight-wasm-aot $CURRENT_VERSION already available (cached)"
+            else
+              echo "Installing hyperlight-wasm-aot version $HYPERLIGHT_REQUIRED_VERSION..."
+              cargo install hyperlight-wasm-aot@$HYPERLIGHT_REQUIRED_VERSION --locked --force
+            fi
+          else
+            echo "Installing hyperlight-wasm-aot version $HYPERLIGHT_REQUIRED_VERSION..."
+            cargo install hyperlight-wasm-aot@$HYPERLIGHT_REQUIRED_VERSION --locked
+          fi
+        fi
+
+        # Install componentize-qjs if not cached or wrong version
+        if command -v componentize-qjs &> /dev/null && grep -q "componentize-qjs-cli $COMPONENTIZE_QJS_REQUIRED_VERSION" "$CARGO_HOME/.crates2.json"; then
+          echo "componentize-qjs $COMPONENTIZE_QJS_REQUIRED_VERSION already available (cached)"
+        else
+          echo "Installing componentize-qjs $COMPONENTIZE_QJS_REQUIRED_VERSION..."
+          cargo install componentize-qjs-cli@$COMPONENTIZE_QJS_REQUIRED_VERSION --locked --no-default-features --force
+        fi
+
+        # Install cargo-hyperlight if not cached or wrong version
+        if command -v cargo-hyperlight &> /dev/null; then
+          CARGO_HYPERLIGHT_CURRENT_VERSION=$(cargo-hyperlight --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          CARGO_HYPERLIGHT_CURRENT_VERSION=${CARGO_HYPERLIGHT_CURRENT_VERSION:-"unknown"}
+          if [ "$CARGO_HYPERLIGHT_CURRENT_VERSION" = "$CARGO_HYPERLIGHT_REQUIRED_VERSION" ]; then
+            echo "cargo-hyperlight $CARGO_HYPERLIGHT_CURRENT_VERSION already available (cached)"
+          else
+            echo "cargo-hyperlight version mismatch: found $CARGO_HYPERLIGHT_CURRENT_VERSION, need $CARGO_HYPERLIGHT_REQUIRED_VERSION. Reinstalling..."
+            cargo install cargo-hyperlight@$CARGO_HYPERLIGHT_REQUIRED_VERSION --locked --force
+          fi
+        else
+          echo "Installing cargo-hyperlight $CARGO_HYPERLIGHT_REQUIRED_VERSION..."
+          cargo install cargo-hyperlight@$CARGO_HYPERLIGHT_REQUIRED_VERSION --locked
+        fi
+      fi
+
+      # Install oha if not cached or wrong version
+      if command -v oha &> /dev/null; then
+        OHA_CURRENT_VERSION=$(oha --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        OHA_CURRENT_VERSION=${OHA_CURRENT_VERSION:-"unknown"}
+        if [ "$OHA_CURRENT_VERSION" = "$OHA_REQUIRED_VERSION" ]; then
+          echo "oha $OHA_CURRENT_VERSION already available (cached)"
+        else
+          echo "oha version mismatch: found $OHA_CURRENT_VERSION, need $OHA_REQUIRED_VERSION. Reinstalling..."
+          cargo install oha@$OHA_REQUIRED_VERSION --locked --force
+        fi
+      else
+        echo "Installing oha $OHA_REQUIRED_VERSION..."
+        cargo install oha@$OHA_REQUIRED_VERSION --locked
+      fi
+      
+      echo "Final tool status:"
+      ls -la /opt/cargo/bin/
+
+  # - name: Setup KVM permissions
+  #   shell: bash
+  #   run: |
+  #     echo "Current user groups:"
+  #     groups
+      
+  #     echo "Checking KVM device:"
+  #     ls -al /dev/kvm || echo "/dev/kvm doesn't exist"
+      
+  #     if [ -e /dev/kvm ]; then
+  #       echo "Setting up KVM permissions..."
+        
+  #       # Change /dev/kvm permissions directly
+  #       # This takes effect immediately unlike group membership changes
+  #       sudo chmod 666 /dev/kvm
+        
+  #       echo "KVM permissions after setup:"
+  #       ls -al /dev/kvm
+        
+  #       # Test KVM access
+  #       if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+  #         echo "✅ KVM device is now accessible"
+  #       else
+  #         echo "❌ KVM device still not accessible"
+  #         exit 1
+  #       fi
+  #     else
+  #       echo "⚠️  KVM device not found - hardware virtualization may not be available"
+  #       echo "Hyperlight may fall back to software emulation"
+  #     fi
+      

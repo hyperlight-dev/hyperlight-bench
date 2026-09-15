@@ -1,0 +1,2 @@
+[env]
+WIT_WORLD = {value = "js/src/wit/handler_wit.wasm", relative = true, force = true}

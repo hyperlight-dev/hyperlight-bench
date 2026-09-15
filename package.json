@@ -1,0 +1,33 @@
+{
+  "name": "hyperlight-http-bench",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:local": "VITE_HISTORY_URL=/local-data/index.json vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "validate": "node scripts/validate-results.ts",
+    "harness:build": "node scripts/build-harness.ts",
+    "benchmark": "node scripts/benchmark.ts",
+    "benchmark:local": "node scripts/benchmark-local.ts",
+    "test": "node --test scripts/publication.test.ts",
+    "results:merge": "node scripts/merge-results.ts",
+    "results:store": "node scripts/publish-results.ts store",
+    "results:publish": "node scripts/publish-results.ts promote"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "chart.js": "4.5.1",
+    "lucide": "1.46.0",
+    "zod": "4.6.5"
+  }
+}

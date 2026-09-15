@@ -1,0 +1,37 @@
+[package]
+name = "http-bench"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[features]
+default = []
+pulley = ["hyperlight-wasm/pulley"]
+time_phases = []
+
+[dependencies]
+async-trait = "0.1"
+clap = { version = "4.5.40", features = ["derive"] }
+http-body-util = "0.1.3"
+hyper = { version = "1.6.0", features = ["http1", "server"] }
+hyper-util = { version = "0.1.14", features = ["tokio"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = "0.32"
+tokio = { version = "1.45.1", features = ["full"] }
+libc = "0.2.174"
+
+# handlers
+sandbox-observer = { path = "../observer" }
+# IMPORTANT: pinned to exact version because the wasmtime-aot handler loads .aot files
+# compiled by hyperlight-wasm-aot, and wasmtime requires an exact version match for AOT.
+# To find the required version, run: cargo install hyperlight-wasm-aot@<version> && rg 'wasmtime' ~/.cargo/registry/src/*/hyperlight-wasm-aot-*/Cargo.toml
+wasmtime = { version = "=36.0.14", default-features = false, features = ["cranelift", "runtime", "component-model", "pooling-allocator", "pulley" ] }
+# If updating hyperlight-host, don't forget to update crates/hyperlight-dummy-guest/Cargo.toml
+hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm", "mshv3" ]}
+hyperlight-common = { version = "0.17.0", default-features = false }
+hyperlight-js = { version = "0.4.0", features = ["mshv3"] }
+# If updating hyperlight-wasm version, also update installing `hyperlight-wasm-aot` in action.yml
+hyperlight-wasm = { version = "0.15.0" }
+hyperlight-component-macro = "0.17.0"

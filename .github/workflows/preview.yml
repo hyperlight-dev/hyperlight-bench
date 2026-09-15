@@ -1,0 +1,73 @@
+name: PR Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: preview-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  revision:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      number: ${{ steps.revision.outputs.number }}
+      head: ${{ steps.revision.outputs.head }}
+      repository: ${{ steps.revision.outputs.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - id: revision
+        run: node scripts/preview-ci.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  approve:
+    name: "Approve preview PR ${{ needs.revision.outputs.number }} at ${{ needs.revision.outputs.head }}"
+    needs: revision
+    runs-on: ubuntu-latest
+    environment:
+      name: preview-approval
+      url: "https://github.com/${{ needs.revision.outputs.repository }}/commit/${{ needs.revision.outputs.head }}"
+    steps:
+      - run: echo 'Preview revision approved'
+
+  build:
+    needs: [revision, approve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.revision.outputs.repository }}
+          ref: ${{ needs.revision.outputs.head }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run build -- --base ./
+        env:
+          VITE_HISTORY_URL: ./data/index.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: preview-${{ needs.revision.outputs.number }}-${{ needs.revision.outputs.head }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90

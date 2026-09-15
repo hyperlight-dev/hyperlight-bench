@@ -1,0 +1,247 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: benchmark-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  eligibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.policy.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - id: policy
+        run: node scripts/pr-policy.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # Record the commit and choose which runners and benchmarks to run.
+  configure:
+    needs: eligibility
+    if: needs.eligibility.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.matrix.outputs.platforms }}
+      configurations: ${{ steps.matrix.outputs.configurations }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Restore script npm cache
+        id: npm-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.npm
+          key: npm-scripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-scripts-${{ runner.os }}-
+      - run: npm ci
+      - id: matrix
+        run: node scripts/configure-ci.ts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: run-identity
+          path: artifacts/run.json
+          if-no-files-found: error
+
+  # Build guest inputs once on KVM for all measurement configurations.
+  producer:
+    needs: configure
+    runs-on: [self-hosted, Linux, X64, '1ES.Pool=hld-kvm-amd']
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Restore npm cache
+        id: npm-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('js/**/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - name: Setup Rust
+        uses: ./.github/actions/setup
+        with:
+          HYPERVISOR: kvm
+          CPU_VENDOR: amd
+          CACHE_SCOPE: producer-v2
+          SAVE_CACHES: 'true'
+      - run: rustup toolchain install nightly-2026-02-16 --component rust-src --target wasm32-wasip2 --profile minimal
+      - run: node scripts/build-harness.ts inputs
+      # Build the embedded Hyperlight runtimes for reuse by platform jobs.
+      - run: node scripts/build-harness.ts servers native
+      - uses: actions/upload-artifact@v7
+        with:
+          name: guest-inputs
+          path: |
+            js/src/wit/handler_wit.wasm
+            js/default/handler.wasm
+            js/default/handler.aot
+            js/pulley/handler.aot
+            js/componentize-qjs/handler.wasm
+            js/componentize-qjs/handler.aot
+            js/componentize-qjs/handler.pulley.aot
+            crates/handler-rs/target/wasm32-wasip2/release/handler_rs.wasm
+            crates/handler-rs/target/wasm32-wasip2/release/handler_rs.aot
+            crates/handler-rs/target/wasm32-wasip2/release/handler_rs.pulley.aot
+            crates/hyperlight-dummy-guest/target/x86_64-hyperlight-none/release/hyperlight-dummy-guest
+            target/hyperlight-js-runtime/x86_64-hyperlight-none/release/hyperlight-js-runtime
+            target/hyperlight-wasm-runtime/x86_64-hyperlight-none/release/hyperlight-wasm-runtime
+          if-no-files-found: error
+          retention-days: 7
+
+  # Prime each platform's Cargo cache before benchmark jobs fan out.
+  prepare:
+    needs: [configure, producer]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.platforms) }}
+    runs-on: ${{ matrix.labels }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Setup Rust
+        id: setup-rust
+        uses: ./.github/actions/setup
+        with:
+          HYPERVISOR: ${{ matrix.platform }}
+          CPU_VENDOR: amd
+          SAVE_CACHES: 'true'
+          BENCH_ONLY: 'true'
+      - uses: actions/download-artifact@v8
+        with:
+          name: guest-inputs
+          path: .
+      - name: Prime server build cache
+        if: steps.setup-rust.outputs.CACHE_HIT != 'true'
+        run: node scripts/build-harness.ts servers
+
+  # Build from the platform cache and run one runtime/strategy combination.
+  measure:
+    needs: [configure, prepare]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.configurations) }}
+    runs-on: ${{ matrix.labels }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/.npm
+          key: npm-scripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-scripts-${{ runner.os }}-
+      - run: npm ci
+      - name: Setup Rust
+        uses: ./.github/actions/setup
+        with:
+          HYPERVISOR: ${{ matrix.platform }}
+          CPU_VENDOR: amd
+          BENCH_ONLY: 'true'
+      - uses: actions/download-artifact@v8
+        with:
+          name: guest-inputs
+          path: .
+      - name: Build benchmark server
+        run: node scripts/build-harness.ts servers ${{ matrix.flavor }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: run-identity
+          path: artifacts/
+      - run: node scripts/benchmark.ts --platform ${{ matrix.platform }} --runtime ${{ matrix.runtime }} --strategy ${{ matrix.strategy }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: result-${{ matrix.platform }}-${{ matrix.runtime }}-${{ matrix.strategy }}
+          path: results/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Merge results only after every measurement job succeeds.
+  collect:
+    needs: measure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/.npm
+          key: npm-scripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-scripts-${{ runner.os }}-
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: result-*
+          path: results/
+          merge-multiple: true
+      - run: node scripts/merge-results.ts --output run.json results/*/bundle.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: run.json
+          if-no-files-found: error
+          retention-days: 90
+
+  # Provide one required check that also reports failed, skipped, or cancelled stages.
+  benchmark-status:
+    name: Benchmark Status
+    if: always()
+    needs: [eligibility, configure, producer, prepare, measure, collect]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Require every benchmark stage to succeed
+        env:
+          BENCHMARK_JOB_RESULTS: ${{ toJSON(needs) }}
+          BENCHMARK_MODE: ${{ needs.eligibility.outputs.mode }}
+        run: node scripts/check-ci-status.ts

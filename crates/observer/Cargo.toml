@@ -1,0 +1,11 @@
+[package]
+name = "sandbox-observer"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm", "mshv3" ]}
+libc = "0.2.176"
+
