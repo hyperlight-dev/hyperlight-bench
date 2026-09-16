@@ -1,0 +1,740 @@
+{
+  "catalog": {
+    "runtimes": [
+      {
+        "id": "dummy",
+        "engine": "Native",
+        "description": "Host-only baseline.",
+        "execution": "host"
+      },
+      {
+        "id": "hyperlight-dummy",
+        "engine": "Native",
+        "description": "Minimal native Hyperlight guest.",
+        "execution": "native"
+      },
+      {
+        "id": "hyperlight-js",
+        "engine": "QuickJS",
+        "description": "Native QuickJS inside Hyperlight.",
+        "execution": "native"
+      },
+      {
+        "id": "hyperlight-wasm-jco",
+        "engine": "StarlingMonkey",
+        "description": "jco component, native AOT, inside Hyperlight.",
+        "execution": "wasm-aot"
+      },
+      {
+        "id": "hyperlight-wasm-pulley",
+        "engine": "StarlingMonkey",
+        "description": "jco component, Pulley interpreter, inside Hyperlight.",
+        "execution": "wasm-pulley"
+      },
+      {
+        "id": "hyperlight-wasm-qjs",
+        "engine": "QuickJS",
+        "description": "QuickJS component, native AOT, inside Hyperlight.",
+        "execution": "wasm-aot"
+      },
+      {
+        "id": "hyperlight-wasm-dummy",
+        "engine": "Rust",
+        "description": "Rust Wasm component, native AOT, inside Hyperlight.",
+        "execution": "wasm-aot"
+      },
+      {
+        "id": "wasmtime-jco",
+        "engine": "StarlingMonkey",
+        "description": "jco component compiled at context creation.",
+        "execution": "wasm-jit"
+      },
+      {
+        "id": "wasmtime-qjs",
+        "engine": "QuickJS",
+        "description": "QuickJS component compiled at context creation.",
+        "execution": "wasm-jit"
+      },
+      {
+        "id": "wasmtime-aot-jco",
+        "engine": "StarlingMonkey",
+        "description": "Precompiled jco component in Wasmtime.",
+        "execution": "wasm-aot"
+      },
+      {
+        "id": "wasmtime-aot-qjs",
+        "engine": "QuickJS",
+        "description": "Precompiled QuickJS component in Wasmtime.",
+        "execution": "wasm-aot"
+      },
+      {
+        "id": "wasmtime-aot-dummy",
+        "engine": "Rust",
+        "description": "Precompiled Rust Wasm component in Wasmtime.",
+        "execution": "wasm-aot"
+      },
+      {
+        "id": "wasmtime-pulley-jco",
+        "engine": "StarlingMonkey",
+        "description": "jco component interpreted by Wasmtime Pulley.",
+        "execution": "wasm-pulley"
+      },
+      {
+        "id": "wasmtime-dummy",
+        "engine": "Rust",
+        "description": "Rust Wasm component compiled at context creation.",
+        "execution": "wasm-jit"
+      },
+      {
+        "id": "hyperlight-wasm-pulley-qjs",
+        "engine": "QuickJS",
+        "description": "QuickJS component, Pulley interpreter, inside Hyperlight.",
+        "execution": "wasm-pulley"
+      },
+      {
+        "id": "wasmtime-pulley-qjs",
+        "engine": "QuickJS",
+        "description": "QuickJS component interpreted by Wasmtime Pulley.",
+        "execution": "wasm-pulley"
+      },
+      {
+        "id": "hyperlight-wasm-pulley-dummy",
+        "engine": "Rust",
+        "description": "Rust Wasm component, Pulley interpreter, inside Hyperlight.",
+        "execution": "wasm-pulley"
+      },
+      {
+        "id": "wasmtime-pulley-dummy",
+        "engine": "Rust",
+        "description": "Rust Wasm component interpreted by Wasmtime Pulley.",
+        "execution": "wasm-pulley"
+      }
+    ],
+    "platforms": [
+      {
+        "id": "kvm",
+        "label": "KVM"
+      },
+      {
+        "id": "mshv3",
+        "label": "MSHV"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "rps",
+        "label": "Throughput",
+        "title": "HTTP requests per second",
+        "unit": "req/s",
+        "direction": "higher",
+        "methodVersion": 1
+      },
+      {
+        "id": "memory",
+        "label": "Peak memory",
+        "title": "Peak resident memory",
+        "unit": "MiB",
+        "direction": "lower",
+        "methodVersion": 2
+      },
+      {
+        "id": "p50",
+        "label": "P50 latency",
+        "title": "P50 request latency",
+        "unit": "ms",
+        "direction": "lower",
+        "methodVersion": 1
+      },
+      {
+        "id": "p95",
+        "label": "P95 latency",
+        "title": "P95 request latency",
+        "unit": "ms",
+        "direction": "lower",
+        "methodVersion": 1
+      },
+      {
+        "id": "p9999",
+        "label": "P99.99 latency",
+        "title": "P99.99 request latency",
+        "unit": "ms",
+        "direction": "lower",
+        "methodVersion": 1
+      }
+    ]
+  },
+  "benchmark": {
+    "id": "http-redirect",
+    "version": 2,
+    "settings": {
+      "durationSeconds": 60,
+      "concurrency": 50,
+      "poolSize": 4,
+      "workerThreads": "available-parallelism",
+      "workerReadiness": "all-workers",
+      "sandboxTimeoutMs": 1000,
+      "timeoutCheckIntervalMs": 10,
+      "clientTimeoutSeconds": null,
+      "memorySampleIntervalMs": 500,
+      "memorySampleAtShutdown": true,
+      "readinessRequests": 1,
+      "warmupRequests": 0,
+      "waitOngoingRequests": false,
+      "repetitions": 1,
+      "hyperlightAotMapping": "linux-file-mapping-per-worker"
+    },
+    "metricIds": [
+      "rps",
+      "memory",
+      "p50",
+      "p95",
+      "p9999"
+    ],
+    "expectedConfigurations": [
+      {
+        "runtimeId": "dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-js",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-js",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-js",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-js",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-js",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-js",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-jco",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-jco",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-jco",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-jco",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-jco",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-jco",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-qjs",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-qjs",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-qjs",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-qjs",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-qjs",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-qjs",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-jco",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-jco",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-jco",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-jco",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-jco",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-jco",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-qjs",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-qjs",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-qjs",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-qjs",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-qjs",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-qjs",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-aot-jco",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-aot-jco",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-aot-jco",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-aot-jco",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-aot-jco",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-aot-jco",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-aot-qjs",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-aot-qjs",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-aot-qjs",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-aot-qjs",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-aot-qjs",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-aot-qjs",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-aot-dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-aot-dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-aot-dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-aot-dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-aot-dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-aot-dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-jco",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-jco",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-jco",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-jco",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-jco",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-jco",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-qjs",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-qjs",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-qjs",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-qjs",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-qjs",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-qjs",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-qjs",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-qjs",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-qjs",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-qjs",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-qjs",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-qjs",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "hyperlight-wasm-pulley-dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-dummy",
+        "platformId": "kvm",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-dummy",
+        "platformId": "kvm",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-dummy",
+        "platformId": "kvm",
+        "strategy": "new"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-dummy",
+        "platformId": "mshv3",
+        "strategy": "reload"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-dummy",
+        "platformId": "mshv3",
+        "strategy": "reuse"
+      },
+      {
+        "runtimeId": "wasmtime-pulley-dummy",
+        "platformId": "mshv3",
+        "strategy": "new"
+      }
+    ]
+  },
+  "expectedSkus": {
+    "kvm": "Standard_D8ads_v6",
+    "mshv3": "Standard_D8as_v5"
+  }
+}
