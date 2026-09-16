@@ -41,11 +41,15 @@ function previewLabel(data: Dataset): string {
 }
 
 function renderDashboard(data: Dataset) {
+  data = {
+    ...data,
+    platforms: data.platforms.toSorted((first, second) => Number(second.id === 'mshv3') - Number(first.id === 'mshv3')),
+  }
   const params = new URLSearchParams(location.search)
   const preferredRuntimes = ['hyperlight-js', 'hyperlight-wasm-jco', 'hyperlight-wasm-qjs', 'wasmtime-aot-jco', 'wasmtime-aot-qjs']
   const availablePreferred = preferredRuntimes.filter(id => data.runtimes.some(runtime => runtime.id === id))
   const defaultRuntimes = availablePreferred.length ? availablePreferred : data.runtimes.map(runtime => runtime.id)
-  const defaultPlatform = data.platforms.find(platform => platform.id === 'kvm')?.id ?? data.platforms[0]!.id
+  const defaultPlatform = data.platforms[0]!.id
   const defaultMetric = data.metrics.find(metric => metric.id === 'rps')?.id ?? data.metrics[0]!.id
   let strategy: Strategy = ['reload', 'reuse', 'new'].includes(params.get('strategy') ?? '') ? params.get('strategy') as Strategy : 'reload'
   let metricId: MetricId = data.metrics.some(metric => metric.id === params.get('metric')) ? params.get('metric') as MetricId : defaultMetric
@@ -102,7 +106,7 @@ function renderDashboard(data: Dataset) {
           <section class="snapshot-section" aria-labelledby="snapshot-title"><div class="snapshot-heading"><div><span class="eyebrow">COMMIT SNAPSHOT</span><h2 id="snapshot-title"></h2><p id="commit-message"></p></div><div><label for="run" class="sr-only">Selected commit</label><select id="run"></select><a id="commit-link" target="_blank" rel="noopener noreferrer" hidden>View commit <i data-lucide="arrow-up-right"></i></a><a id="pr-link" target="_blank" rel="noopener noreferrer" hidden><span id="pr-link-label">View PR</span> <i data-lucide="arrow-up-right"></i></a></div></div>
             <div class="table-scroll"><table><thead><tr><th scope="col">Rank</th><th scope="col">Runtime</th><th scope="col">Platform</th><th scope="col" id="value-heading"></th><th scope="col">% of largest selected value<div class="relative-scale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div></th></tr></thead><tbody id="results-body"></tbody></table></div>
           </section>
-          <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table><thead><tr><th>Platform</th><th>Runner</th><th>Operating system</th><th>Azure VM SKU</th><th>Runner pool</th><th>Region</th><th>CPU</th><th>vCPUs</th><th>Cores</th><th>Threads/core</th><th>Memory (GiB)</th></tr></thead><tbody id="runner-details"></tbody></table></div></details>
+          <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table><thead><tr><th>Platform</th><th>CPU</th><th>vCPUs</th><th>Cores</th><th>Azure VM SKU</th><th>Operating system</th><th>Memory (GiB)</th><th>Runner pool</th><th>Region</th><th>Runners</th></tr></thead><tbody id="runner-details"></tbody></table></div></details>
         </div>
       </div>
       <footer><span>${data.source === 'synthetic' ? 'Demo data. Synthetic measurements.' : 'Hyperlight HTTP Benchmarks'}</span></footer>
@@ -126,7 +130,7 @@ function renderDashboard(data: Dataset) {
     element('#snapshot-title').textContent = 'No run selected'
     element('#value-heading').textContent = data.metrics.find(metric => metric.id === metricId)!.label
     element('#results-body').innerHTML = '<tr><td colspan="5" class="empty-table">No measurements available.</td></tr>'
-    element('#runner-details').innerHTML = '<tr><td colspan="11" class="empty-table">No runner data available.</td></tr>'
+    element('#runner-details').innerHTML = '<tr><td colspan="10" class="empty-table">No runner data available.</td></tr>'
     element('.chart-heading p:last-child').hidden = true
     element('.separator').hidden = true
     createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
@@ -161,11 +165,23 @@ function renderDashboard(data: Dataset) {
     if (pr) {
       prLink.href = `https://github.com/${pr.repository}/pull/${pr.number}`
     }
-    const runners = run.runners.filter(runner => selectedPlatforms.has(runner.platformId))
-    element('#runner-details').innerHTML = runners.length ? runners.map(runner => {
-      const cells = [data.platforms.find(platform => platform.id === runner.platformId)!.label, runner.name, [runner.os.name, runner.os.version, runner.os.architecture].filter(Boolean).join(' '), runner.sku, runner.pool, runner.region, runner.cpu.model, runner.cpu.logicalProcessors, runner.cpu.cores, runner.cpu.threadsPerCore, runner.memoryBytes / 1024 ** 3]
+    const groups = new Map<string, { cells: (string | number | null)[], names: Set<string> }>()
+    for (const platform of data.platforms.filter(platform => selectedPlatforms.has(platform.id))) {
+      for (const runner of run.runners.filter(runner => runner.platformId === platform.id)) {
+        const cells = [platform.label, runner.cpu.model, runner.cpu.logicalProcessors, runner.cpu.cores, runner.sku, [runner.os.name, runner.os.version, runner.os.architecture].filter(Boolean).join(' '), (runner.memoryBytes / 1024 ** 3).toFixed(1), runner.pool, runner.region]
+        const key = JSON.stringify([platform.id, runner.os.name, runner.os.version, runner.os.architecture, ...cells])
+        const group = groups.get(key)
+        if (group) group.names.add(runner.name)
+        else groups.set(key, {
+          cells,
+          names: new Set([runner.name]),
+        })
+      }
+    }
+    element('#runner-details').innerHTML = groups.size ? [...groups.values()].map(group => {
+      const cells = [...group.cells, group.names.size]
       return `<tr>${cells.map(value => `<td>${escapeHtml(String(value ?? '-'))}</td>`).join('')}</tr>`
-    }).join('') : '<tr><td colspan="11" class="empty-table">No platforms selected.</td></tr>'
+    }).join('') : '<tr><td colspan="10" class="empty-table">No platforms selected.</td></tr>'
     element('#value-heading').textContent = `${metric().label} (${metric().unit})`
     const rows = rowsFor(selectedRunId)
     const maximum = Math.max(...rows.map(entry => entry.values[metricId]), 0)

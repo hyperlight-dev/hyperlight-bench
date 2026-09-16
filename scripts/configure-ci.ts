@@ -1,5 +1,5 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { benchmark, runnerPools, serverFlavor } from '../shared/catalog.ts'
+import { runnerPools, runtimes, serverFlavor } from '../shared/catalog.ts'
 import { output } from './runner-metadata.ts'
 
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH!, 'utf8'))
@@ -23,10 +23,8 @@ if (pullRequest) {
   writeFileSync('artifacts/run.json', `${JSON.stringify(run, null, 2)}\n`)
 }
 const platforms = Object.entries(runnerPools).map(([platform, runner]) => ({ platform, labels: ['self-hosted', 'Linux', 'X64', `1ES.Pool=${runner.pool}`] }))
-const configurations = benchmark.expectedConfigurations.map(configuration => ({
-  platform: configuration.platformId, runtime: configuration.runtimeId, strategy: configuration.strategy,
-  flavor: serverFlavor(configuration.runtimeId),
-  labels: platforms.find(platform => platform.platform === configuration.platformId)!.labels,
-}))
+const configurations = platforms.flatMap(platform => runtimes.map(runtime => ({
+  ...platform, runtime: runtime.id, flavor: serverFlavor(runtime.id),
+})))
 if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required')
 appendFileSync(process.env.GITHUB_OUTPUT, `platforms=${JSON.stringify({ include: platforms })}\nconfigurations=${JSON.stringify({ include: configurations })}\n`)

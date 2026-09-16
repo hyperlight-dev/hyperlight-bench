@@ -64,7 +64,7 @@ async function verifiedRun(runId: number, attempt: number) {
   const jobs = [...latestJobs.values()]
   const expected = new Map([
     ['eligibility', 1], ['configure', 1], ['producer', 1], ['prepare', 2],
-    ['measure', publicationPolicy.benchmark.expectedConfigurations.length], ['collect', 1], ['Benchmark Status', 1],
+    ['measure', publicationPolicy.catalog.platforms.length * publicationPolicy.catalog.runtimes.length], ['collect', 1], ['Benchmark Status', 1],
   ])
   for (const [name, count] of expected) {
     const matching = jobs.filter(job => job.name === name || job.name.startsWith(`${name} (`))
