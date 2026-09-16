@@ -59,11 +59,15 @@ function renderDashboard(data: Dataset) {
   let selectedRunId = data.runs.find(run => run.id === params.get('run'))?.id ?? data.runs.at(-1)?.id ?? ''
   let chart: Chart<'line'> | undefined
   const runtimeGroups = [
-    { label: 'Hyperlight JS', runtimes: data.runtimes.filter(runtime => runtime.id === 'hyperlight-js') },
-    { label: 'Hyperlight Wasm', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hyperlight-wasm-') && !runtime.id.endsWith('-dummy')) },
-    { label: 'Wasmtime', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('wasmtime-') && !runtime.id.endsWith('-dummy')) },
-    { label: 'Dummy', runtimes: data.runtimes.filter(runtime => runtime.id === 'dummy' || runtime.id.endsWith('-dummy')) },
+    { label: 'Hyperlight JS', shape: 'circle', runtimes: data.runtimes.filter(runtime => runtime.id === 'hyperlight-js') },
+    { label: 'Hyperlight Wasm', shape: 'square', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hyperlight-wasm-') && !runtime.id.endsWith('-dummy')) },
+    { label: 'Wasmtime', shape: 'diamond', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('wasmtime-') && !runtime.id.endsWith('-dummy')) },
+    { label: 'Dummy', shape: 'triangle', runtimes: data.runtimes.filter(runtime => runtime.id === 'dummy' || runtime.id.endsWith('-dummy')) },
   ]
+  const runtimeMarker = (runtimeId: string, markerColor: string) => {
+    const shape = runtimeGroups.find(group => group.runtimes.some(runtime => runtime.id === runtimeId))?.shape ?? 'square'
+    return `<span class="runtime-swatch" data-shape="${shape}" style="background:${markerColor}" aria-hidden="true"></span>`
+  }
 
   app.innerHTML = `
     <header class="site-header">
@@ -78,12 +82,12 @@ function renderDashboard(data: Dataset) {
           <div class="panel-heading"><h2>Runtimes <span class="count" id="runtime-count"></span></h2><button class="icon-button" id="reset" title="Reset filters" aria-label="Reset filters"><i data-lucide="rotate-ccw"></i></button></div>
           <label class="search-label" for="runtime-search">Find runtime</label><input id="runtime-search" type="search" placeholder="Filter runtimes..." autocomplete="off" />
           <div class="selection-actions"><button id="select-all">Select all</button><button id="select-none">Clear</button></div>
-          <div id="runtime-list">${runtimeGroups.map(group => `<div class="runtime-group" role="group" aria-label="${group.label}">${group.runtimes.map(runtime => {
+          <div id="runtime-list">${runtimeGroups.map(group => `<div class="runtime-group" role="group" aria-label="${group.label}"><h3 class="runtime-group-heading">${group.label}</h3>${group.runtimes.map(runtime => {
             const index = data.runtimes.indexOf(runtime)
             return `
             <label class="runtime-option" data-runtime="${runtime.id}" title="${escapeHtml(runtime.description)}">
               <input type="checkbox" value="${runtime.id}" ${selectedRuntimes.has(runtime.id) ? 'checked' : ''} style="accent-color:${palette[index % palette.length]}" />
-              <span class="runtime-swatch" style="background:${palette[index % palette.length]}"></span><span class="runtime-text"><span>${runtime.id}</span><small>${escapeHtml(runtime.engine)}</small></span>
+              ${runtimeMarker(runtime.id, palette[index % palette.length]!)}<span class="runtime-text"><span>${runtime.id}</span><small>${escapeHtml(runtime.engine)}</small></span>
             </label>`
           }).join('')}</div>`).join('')}</div>
           <p id="search-empty" hidden>No matching runtimes.</p>
@@ -213,7 +217,7 @@ function renderDashboard(data: Dataset) {
     const maximum = Math.max(...rows.map(entry => entry.values[metricId]), 0)
     element('#results-body').innerHTML = rows.length ? rows.map((entry, index) => {
       const percentage = maximum > 0 ? entry.values[metricId] / maximum * 100 : 0
-      return `<tr><td class="rank">${String(index + 1).padStart(2, '0')}</td><td><span class="table-runtime"><span class="runtime-swatch" style="background:${color(entry.runtimeId)}"></span>${entry.runtimeId}</span></td><td><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td><td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
+      return `<tr><td class="rank">${String(index + 1).padStart(2, '0')}</td><td><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}${entry.runtimeId}</span></td><td><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td><td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
     }).join('') : '<tr><td colspan="5" class="empty-table">No measurements selected.</td></tr>'
     saveView()
   }
@@ -238,6 +242,7 @@ function renderDashboard(data: Dataset) {
     element<HTMLSelectElement>('#run').innerHTML = runs.map(run => `<option value="${run.id}">${run.commit}${data.preview?.pending && run.id === `${data.preview.pending.id}.${data.preview.pending.attempt}` ? ' · Pending PR' : ''}${run.id === data.runs.at(-1)!.id ? ' · Latest' : ''}</option>`).join('')
     element('#chart-period').textContent = `${runs[0]!.date.slice(0, 10)} / ${runs.at(-1)!.date.slice(0, 10)}`
     const series = data.runtimes.filter(runtime => selectedRuntimes.has(runtime.id)).flatMap(runtime => data.platforms.filter(platform => selectedPlatforms.has(platform.id)).map(platform => ({
+      runtimeId: runtime.id,
       label: `${runtime.id}${selectedPlatforms.size > 1 ? ` / ${platform.label}` : ''}`,
       data: runs.map(run => data.measurements.find(entry => entry.runId === run.id && entry.runtimeId === runtime.id && entry.platformId === platform.id && entry.strategy === strategy)?.values[metricId] ?? null),
       borderColor: color(runtime.id), backgroundColor: color(runtime.id), borderWidth: 2,
@@ -269,7 +274,7 @@ function renderDashboard(data: Dataset) {
                 if (!popup.matches(':hover')) popup.hidden = true
                 return
               }
-              popup.innerHTML = `<strong>${escapeHtml(tooltip.title.join(' '))}</strong><div class="tooltip-values">${tooltip.dataPoints.map(point => `<div><span class="runtime-swatch" style="background:${point.dataset.borderColor}"></span><span>${escapeHtml(point.dataset.label!)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`).join('')}</div><p>${escapeHtml(tooltip.footer.join(' '))}</p>`
+              popup.innerHTML = `<strong>${escapeHtml(tooltip.title.join(' '))}</strong><div class="tooltip-values">${tooltip.dataPoints.map(point => `<div>${runtimeMarker(series[point.datasetIndex]!.runtimeId, color(series[point.datasetIndex]!.runtimeId))}<span>${escapeHtml(point.dataset.label!)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`).join('')}</div><p>${escapeHtml(tooltip.footer.join(' '))}</p>`
               popup.hidden = false
               popup.style.left = `${Math.max(0, Math.min(tooltip.caretX + 12, currentChart.width - popup.offsetWidth))}px`
               popup.style.top = `${Math.max(0, Math.min(tooltip.caretY, currentChart.height - popup.offsetHeight))}px`
