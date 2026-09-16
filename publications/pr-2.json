@@ -13,6 +13,7 @@
   "merge": {
     "sha": "6471c3306434e7f702423e91475545abb3f54e99",
     "tree": "500a9944588b6dce223bb994bd48873d87ce28fc",
-    "mergedAt": "2026-09-16T00:50:13Z"
+    "mergedAt": "2026-09-16T00:50:13Z",
+    "message": "Benchmark Hyperlight host 0.17.0, JS 0.4.0, Wasm 0.15.0 (#2)\n\nAdditional runtime versions:\n* Wasmtime: 36.0.14\n* jco: 1.16.0\n* componentize-js: 0.19.3\n* componentize-qjs-cli: 0.3.0\n\nBuild and load tools:\n* cargo-hyperlight: 0.1.14\n* wasm-tools: 1.243.0\n* oha: 1.9.0\n\n---------\n\nSigned-off-by: Ludvig Liljenberg <4257730+ludfjig@users.noreply.github.com>\n"
   }
 }
