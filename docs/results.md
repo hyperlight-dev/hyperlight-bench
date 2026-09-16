@@ -144,6 +144,10 @@ Use `{"schemaVersion":1,"runs":[]}` for an empty history.
 `historyRunPath` derives each bundle path relative to the index URL.
 Paths contain the recorded workflow ID and attempt, independent of chart labels.
 
+Served index entries may include `displayCommit` with the final merge SHA, title,
+and URL from the validated publication record. Publication records require the
+merge commit message. Measured commit metadata remains in the immutable bundle.
+
 `parseHistoryRun` requires a complete measured bundle whose identity matches
 the index entry. The dashboard sorts runs by creation time and run key.
 It rejects the history if any referenced bundle fails to load or validate.

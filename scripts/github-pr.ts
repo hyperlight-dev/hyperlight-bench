@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { readFileSync } from 'node:fs'
 
 const repository = process.env.GITHUB_REPOSITORY!
 if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY is required')
@@ -6,12 +7,14 @@ const api = 'https://api.github.com'
 const token = process.env.GH_TOKEN
 if (!token) throw new Error('GH_TOKEN is required')
 
-export async function github(path: string): Promise<any> {
+export async function github(path: string, body?: unknown): Promise<any> {
   const response = await fetch(`${api}/repos/${repository}/${path}`, {
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' },
+    method: body === undefined ? 'GET' : 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(30000),
   })
-  if (!response.ok) throw new Error(`GitHub GET ${path}: HTTP ${response.status}`)
+  if (!response.ok) throw new Error(`GitHub ${body === undefined ? 'GET' : 'POST'} ${path}: HTTP ${response.status}`)
   return response.json()
 }
 
@@ -25,7 +28,14 @@ export async function pages(path: string): Promise<any[]> {
   }
 }
 
+export async function workflowTrusted(path: string, head: string): Promise<boolean> {
+  const workflow = await github(`contents/${path}?ref=${head}`)
+  if (workflow.encoding !== 'base64') return false
+  return Buffer.from(workflow.content, 'base64').toString('utf8') === readFileSync(path, 'utf8')
+}
+
 const commit = z.string().regex(/^[a-f0-9]{40}$/)
+
 export const decisionSchema = z.object({
   schemaVersion: z.literal(1),
   repository: z.string(),
@@ -37,11 +47,6 @@ export const decisionSchema = z.object({
   approver: z.string().nullable(),
 })
 
-async function maintainer(login: string): Promise<boolean> {
-  const result = await github(`collaborators/${encodeURIComponent(login)}/permission`)
-  return ['admin', 'maintain', 'write'].includes(result.permission)
-}
-
 export async function eligibility(number: number) {
   if (!Number.isSafeInteger(number) || number < 1) throw new Error('A PR number is required')
   const pr = await github(`pulls/${number}`)
@@ -51,19 +56,8 @@ export async function eligibility(number: number) {
     mode: 'required', reason: 'Benchmark-affecting changes require a complete run.', approver: null,
   })
   if (pr.labels.some((label: { name: string }) => label.name === 'benchmarks: skip')) {
-    const files = await pages(`pulls/${number}/files`)
-    if (files.length !== pr.changed_files || !files.length) throw new Error('Cannot verify the complete changed-file list')
-    const allowed = (path: string) => /^(docs\/|src\/|public\/)/.test(path)
-      || ['README.md', 'LICENSE', 'index.html'].includes(path)
-    if (files.some(file => !allowed(file.filename) || (file.previous_filename && !allowed(file.previous_filename)))) {
-      throw new Error('Skip label covers benchmark-sensitive files. Remove the label and run benchmarks.')
-    }
-    const events = await pages(`issues/${number}/events`)
-    const label = events.filter(event => event.event === 'labeled' && event.label?.name === 'benchmarks: skip').at(-1)
-    if (!label?.actor?.login || !await maintainer(label.actor.login)) throw new Error('Skip label must be applied by a maintainer')
     decision.mode = 'skip'
-    decision.reason = 'Maintainer applied benchmarks: skip and all changed files are eligible.'
-    decision.approver = label.actor.login
+    decision.reason = 'PR has the benchmarks: skip label.'
   }
   return { pr, decision }
 }

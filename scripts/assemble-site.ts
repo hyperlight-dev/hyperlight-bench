@@ -1,7 +1,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
-import { historyIndexSchema, historyRunPath, parseHistoryRun, runKey, groupHistories } from '../shared/results.ts'
+import { historyIndexSchema, historyRunPath, parseHistoryRun, runKey, groupHistories, validatePublication } from '../shared/results.ts'
 import type { RunBundle } from '../shared/results.ts'
 import { readJson, readOptionalJson, writeJson } from './result-store.ts'
 
@@ -55,7 +55,20 @@ export function assembleSite(options: {
   const seen = new Set<number>()
   function serveData(destination: string, bundles: RunBundle[], preview?: { number: number, head: string, pending: { id: string, attempt: number } | null }) {
     groupHistories(bundles)
-    const history = historyIndexSchema.parse({ schemaVersion: 1, runs: bundles.map(bundle => ({ id: bundle.run.id, attempt: bundle.run.attempt })), ...(preview ? { preview } : {}) })
+    const runs = bundles.map(bundle => {
+      const entry = { id: bundle.run.id, attempt: bundle.run.attempt }
+      if (!index.runs.some(run => run.id === entry.id && run.attempt === entry.attempt)) return entry
+      const pr = bundle.run.pullRequest
+      const input = pr ? readOptionalJson(resolve(options.store, 'publications', `pr-${pr.number}.json`)) : undefined
+      if (input === undefined) return entry
+      const publication = validatePublication(bundle, input)
+      return { ...entry, displayCommit: {
+        sha: publication.merge.sha,
+        message: publication.merge.message.split('\n')[0],
+        url: `https://github.com/${publication.pullRequest.repository}/commit/${publication.merge.sha}`,
+      } }
+    })
+    const history = historyIndexSchema.parse({ schemaVersion: 1, runs, ...(preview ? { preview } : {}) })
     for (const bundle of bundles) writeJson(resolve(destination, 'data', historyRunPath(bundle.run)), bundle, true)
     writeJson(resolve(destination, 'data/index.json'), history, true)
   }

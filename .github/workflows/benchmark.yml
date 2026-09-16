@@ -1,6 +1,8 @@
 name: Benchmark
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
@@ -11,7 +13,7 @@ permissions:
   issues: read
 
 concurrency:
-  group: benchmark-${{ github.event.pull_request.number }}
+  group: benchmark-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,6 +21,7 @@ env:
 
 jobs:
   eligibility:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -26,7 +29,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
@@ -40,7 +42,7 @@ jobs:
   # Record the commit and choose which runners and benchmarks to run.
   configure:
     needs: eligibility
-    if: needs.eligibility.outputs.mode != 'skip'
+    if: ${{ !cancelled() && (github.event_name == 'push' || (needs.eligibility.result == 'success' && needs.eligibility.outputs.mode != 'skip')) }}
     runs-on: ubuntu-latest
     outputs:
       platforms: ${{ steps.matrix.outputs.platforms }}
@@ -60,9 +62,16 @@ jobs:
           key: npm-scripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-scripts-${{ runner.os }}-
       - run: npm ci
+      - name: Save script npm cache
+        if: github.event_name == 'push' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
       - id: matrix
         run: node scripts/configure-ci.ts
       - uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request'
         with:
           name: run-identity
           path: artifacts/run.json
@@ -72,6 +81,7 @@ jobs:
   # Build guest inputs once on KVM for all measurement configurations.
   producer:
     needs: configure
+    if: ${{ !cancelled() && needs.configure.result == 'success' }}
     runs-on: [self-hosted, Linux, X64, '1ES.Pool=hld-kvm-amd']
     timeout-minutes: 90
     steps:
@@ -99,6 +109,12 @@ jobs:
       - run: node scripts/build-harness.ts inputs
       # Build the embedded Hyperlight runtimes for reuse by platform jobs.
       - run: node scripts/build-harness.ts servers native
+      - name: Save guest npm cache
+        if: github.event_name == 'push' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:
           name: guest-inputs
@@ -123,6 +139,7 @@ jobs:
   # Prime each platform's Cargo cache before benchmark jobs fan out.
   prepare:
     needs: [configure, producer]
+    if: ${{ !cancelled() && needs.configure.result == 'success' && needs.producer.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.configure.outputs.platforms) }}
@@ -154,6 +171,7 @@ jobs:
   # Build from the platform cache and run one runtime/strategy combination.
   measure:
     needs: [configure, prepare]
+    if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.configure.outputs.configurations) }}
@@ -201,6 +219,7 @@ jobs:
   # Merge results only after every measurement job succeeds.
   collect:
     needs: measure
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -231,14 +250,13 @@ jobs:
   # Provide one required check that also reports failed, skipped, or cancelled stages.
   benchmark-status:
     name: Benchmark Status
-    if: always()
+    if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [eligibility, configure, producer, prepare, measure, collect]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:

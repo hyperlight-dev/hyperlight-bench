@@ -75,8 +75,17 @@ export async function loadHistory(indexUrl: URL, selectedHistory?: string): Prom
   const containing = (key: string | undefined) => groups.find(group => group.some(bundle => runKey(bundle) === key))
   const pending = index.preview?.pending
   const selected = containing(selectedHistory) ?? containing(pending ? `${pending.id}.${pending.attempt}` : undefined) ?? groups[0]!
+  const dataset = datasetFromBundles(selected)
+  for (const run of dataset.runs) {
+    const display = index.runs.find(entry => `${entry.id}.${entry.attempt}` === run.id)?.displayCommit
+    if (display) {
+      run.commit = display.sha.slice(0, 7)
+      run.message = display.message
+      run.commitUrl = display.url
+    }
+  }
   return {
-    ...datasetFromBundles(selected),
+    ...dataset,
     preview: index.preview,
     historyId: runKey(selected[0]!),
     histories: groups.map((group, index) => {

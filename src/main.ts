@@ -99,7 +99,7 @@ function renderDashboard(data: Dataset) {
             <div class="chart-caption"><span id="chart-period"></span></div>
             <div id="chart-legend" class="chart-legend"></div>
           </section>
-          <section class="snapshot-section" aria-labelledby="snapshot-title"><div class="snapshot-heading"><div><span class="eyebrow">COMMIT SNAPSHOT</span><h2 id="snapshot-title"></h2><p id="commit-message"></p></div><div><label for="run" class="sr-only">Selected commit</label><select id="run"></select><a id="commit-link" target="_blank" rel="noopener noreferrer" hidden>View commit <i data-lucide="arrow-up-right"></i></a></div></div>
+          <section class="snapshot-section" aria-labelledby="snapshot-title"><div class="snapshot-heading"><div><span class="eyebrow">COMMIT SNAPSHOT</span><h2 id="snapshot-title"></h2><p id="commit-message"></p></div><div><label for="run" class="sr-only">Selected commit</label><select id="run"></select><a id="commit-link" target="_blank" rel="noopener noreferrer" hidden>View commit <i data-lucide="arrow-up-right"></i></a><a id="pr-link" target="_blank" rel="noopener noreferrer" hidden><span id="pr-link-label">View PR</span> <i data-lucide="arrow-up-right"></i></a></div></div>
             <div class="table-scroll"><table><thead><tr><th scope="col">Rank</th><th scope="col">Runtime</th><th scope="col">Platform</th><th scope="col" id="value-heading"></th><th scope="col">% of largest selected value<div class="relative-scale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div></th></tr></thead><tbody id="results-body"></tbody></table></div>
           </section>
           <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table><thead><tr><th>Platform</th><th>Runner</th><th>Operating system</th><th>Azure VM SKU</th><th>Runner pool</th><th>Region</th><th>CPU</th><th>vCPUs</th><th>Cores</th><th>Threads/core</th><th>Memory (GiB)</th></tr></thead><tbody id="runner-details"></tbody></table></div></details>
@@ -155,6 +155,12 @@ function renderDashboard(data: Dataset) {
     const commitLink = element<HTMLAnchorElement>('#commit-link')
     commitLink.hidden = !run.commitUrl
     if (run.commitUrl) commitLink.href = run.commitUrl
+    const prLink = element<HTMLAnchorElement>('#pr-link')
+    const pr = run.bundle.run.pullRequest
+    prLink.hidden = !pr
+    if (pr) {
+      prLink.href = `https://github.com/${pr.repository}/pull/${pr.number}`
+    }
     const runners = run.runners.filter(runner => selectedPlatforms.has(runner.platformId))
     element('#runner-details').innerHTML = runners.length ? runners.map(runner => {
       const cells = [data.platforms.find(platform => platform.id === runner.platformId)!.label, runner.name, [runner.os.name, runner.os.version, runner.os.architecture].filter(Boolean).join(' '), runner.sku, runner.pool, runner.region, runner.cpu.model, runner.cpu.logicalProcessors, runner.cpu.cores, runner.cpu.threadsPerCore, runner.memoryBytes / 1024 ** 3]

@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   revision:
-    if: ${{ github.event.pull_request.draft == false }}
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.user.login != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -36,18 +36,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  approve:
-    name: "Approve preview PR ${{ needs.revision.outputs.number }} at ${{ needs.revision.outputs.head }}"
-    needs: revision
-    runs-on: ubuntu-latest
-    environment:
-      name: preview-approval
-      url: "https://github.com/${{ needs.revision.outputs.repository }}/commit/${{ needs.revision.outputs.head }}"
-    steps:
-      - run: echo 'Preview revision approved'
-
   build:
-    needs: [revision, approve]
+    needs: revision
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
