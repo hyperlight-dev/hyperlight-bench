@@ -18,6 +18,33 @@ import { mergeBundles } from './merge-results.ts'
 const repository = 'example/benchmarks'
 const root = resolve(import.meta.dirname, '..')
 
+test('main pushes configure cache warming without a measurement identity', async context => {
+  const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-cache-config-'))
+  context.after(() => rmSync(temporary, { recursive: true, force: true }))
+  const eventPath = resolve(temporary, 'event.json')
+  const outputPath = resolve(temporary, 'output')
+  const configure = () => spawnSync(process.execPath, [resolve(root, 'scripts/configure-ci.ts')], {
+    cwd: temporary, encoding: 'utf8',
+    env: {
+      ...process.env, GITHUB_EVENT_NAME: 'push', GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputPath, GITHUB_REPOSITORY: repository,
+      GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '1',
+    },
+  })
+  writeJson(eventPath, { ref: 'refs/heads/main', deleted: false }, false)
+  const result = configure()
+  assert.equal(result.status, 0, result.stderr)
+  const outputs = Object.fromEntries([...readFileSync(outputPath, 'utf8').matchAll(/^(\w+)=(.+)$/gm)]
+    .map(match => [match[1], JSON.parse(match[2]!)]))
+  assert.deepEqual(outputs.platforms.include.map((entry: { platform: string }) => entry.platform), ['kvm', 'mshv3'])
+  assert.equal(outputs.configurations.include.length, 108)
+  assert.equal(existsSync(resolve(temporary, 'artifacts')), false)
+  for (const event of [{ ref: 'refs/heads/feature' }, { ref: 'refs/heads/main', deleted: true }]) {
+    writeJson(eventPath, event, false)
+    assert.notEqual(configure().status, 0)
+  }
+})
+
 test('partial retries retain successful measurements from the same source revision', () => {
   const bundle = fixture()
   const shards = bundle.measurements.map(measurement => {
@@ -158,7 +185,7 @@ function publication(bundle = fixture()) {
   return {
     schemaVersion: 1, run: { id: bundle.run.id, attempt: bundle.run.attempt },
     pullRequest: bundle.run.pullRequest,
-    merge: { sha: 'c'.repeat(40), tree: bundle.run.commit.tree, mergedAt: '2026-09-15T00:00:00Z' },
+    merge: { sha: 'c'.repeat(40), tree: bundle.run.commit.tree, mergedAt: '2026-09-15T00:00:00Z', message: 'Benchmark results (#7)' },
   }
 }
 
@@ -185,8 +212,10 @@ test('benchmark definition changes retain selectable histories and pending previ
     const policy = { ...publicationPolicy, catalog: next.catalog, benchmark: next.benchmark }
     assert.throws(() => validateHistory([first, next]))
     storeRun(store, next, policy)
-    promoteRun(store, publication(next), policy)
-    promoteRun(store, publication(next), policy)
+    const record = publication(next)
+    const titled = { ...record, merge: { ...record.merge, message: 'Improve benchmarks (#10)\n\nCommit details' } }
+    promoteRun(store, titled, policy)
+    promoteRun(store, titled, policy)
     bundles.push(next)
   }
   assert.equal(readFileSync(resolve(store, historyRunPath(first.run)), 'utf8'), original)
@@ -218,13 +247,19 @@ test('benchmark definition changes retain selectable histories and pending previ
   const latest = await loadHistory(url)
   assert.equal(latest!.histories!.length, 4)
   assert.deepEqual(latest!.runs.map(run => run.id), [runKey(bundles.at(-1)!)])
+  assert.equal(latest!.runs[0]!.message, 'Improve benchmarks (#10)')
+  assert.equal(latest!.runs[0]!.commit, 'ccccccc')
+  assert.equal(latest!.runs[0]!.commitUrl, `https://github.com/${repository}/commit/${'c'.repeat(40)}`)
+  assert.deepEqual(latest!.runs[0]!.bundle, bundles.at(-1))
   const older = await loadHistory(url, runKey(first))
   assert.deepEqual(older!.runs.map(run => run.id), [runKey(first)])
+  assert.equal(older!.runs[0]!.message, 'Benchmark results (#7)')
   assert.equal((await loadHistory(url, 'missing'))!.historyId, latest!.historyId)
   const previewUrl = new URL('https://fixture.test/previews/pr-7/data/index.json')
   const preview = await loadHistory(previewUrl)
   assert.equal(preview!.histories!.length, 5)
   assert.deepEqual(preview!.runs.map(run => run.id), [runKey(pending)])
+  assert.equal(preview!.runs[0]!.commit, pending.run.commit.sha.slice(0, 7))
   assert.deepEqual((await loadHistory(previewUrl, runKey(first)))!.runs.map(run => run.id), [runKey(first)])
 })
 
@@ -302,16 +337,12 @@ test('label-only eligibility with simulated GitHub responses', async context => 
     number: 7, base: { ref: 'main', repo: { full_name: repository }, sha: 'b'.repeat(40) },
     head: { sha: 'a'.repeat(40) }, labels: [] as { name: string }[], changed_files: 1,
   }
-  let files: { filename: string, previous_filename?: string }[] = [{ filename: 'README.md' }]
-  let permission = 'write'
   const requests: string[] = []
   context.mock.method(globalThis, 'fetch', async (url: string) => {
     const path = new URL(url).pathname.replace(`/repos/${repository}/`, '')
     requests.push(path)
     const responses: Record<string, unknown> = {
-      'pulls/7': pr, 'pulls/7/files': files,
-      'issues/7/events': [{ event: 'labeled', label: { name: 'benchmarks: skip' }, actor: { login: 'maintainer' } }],
-      'collaborators/maintainer/permission': { permission },
+      'pulls/7': pr,
     }
     assert.ok(path in responses, `Unexpected GitHub request: ${path}`)
     return Response.json(responses[path])
@@ -321,24 +352,107 @@ test('label-only eligibility with simulated GitHub responses', async context => 
     pr.labels = [{ name: 'benchmarks: skip' }]
     const skipped = (await eligibility(7)).decision
     assert.equal(skipped.mode, 'skip')
-    assert.equal(skipped.approver, 'maintainer')
+    assert.equal(skipped.approver, null)
     pr.labels = []
     assert.equal((await eligibility(7)).decision.mode, 'required')
-    assert.equal(requests.some(path => path.includes('comments')), false)
+    assert.deepEqual(requests, ['pulls/7', 'pulls/7', 'pulls/7'])
   })
-  await context.test('unauthorized labels and sensitive renames fail', async () => {
+  await context.test('skipping does not inspect files or the label actor', async () => {
     pr.labels = [{ name: 'benchmarks: skip' }]
-    permission = 'read'
-    await assert.rejects(eligibility(7), /maintainer/)
-    permission = 'write'
-    files = [{ filename: 'README.md', previous_filename: 'Cargo.toml' }]
-    await assert.rejects(eligibility(7), /benchmark-sensitive/)
-  })
-  await context.test('truncated changed-file lists fail', async () => {
-    files = [{ filename: 'README.md' }]
     pr.changed_files = 2
-    await assert.rejects(eligibility(7), /complete changed-file/)
+    assert.equal((await eligibility(7)).decision.mode, 'skip')
+    assert.ok(requests.every(path => path === 'pulls/7'))
   })
+})
+
+test('workflows must match trusted main', async context => {
+  process.env.GITHUB_REPOSITORY = repository
+  process.env.GH_TOKEN = 'fixture-token'
+  const { workflowTrusted } = await import('./github-pr.ts')
+  const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-workflow-trust-'))
+  const previousDirectory = process.cwd()
+  context.after(() => {
+    process.chdir(previousDirectory)
+    rmSync(temporary, { recursive: true, force: true })
+  })
+  process.chdir(temporary)
+  mkdirSync('.github/workflows', { recursive: true })
+  const head = 'a'.repeat(40)
+  let content = 'trusted workflow'
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname.replace(`/repos/${repository}/`, '')
+    assert.ok(path.startsWith('contents/'), `Unexpected GitHub request: ${path}`)
+    return Response.json({ encoding: 'base64', content: Buffer.from(content).toString('base64') })
+  })
+  for (const workflow of ['benchmark', 'preview']) {
+    const path = `.github/workflows/${workflow}.yml`
+    writeFileSync(path, 'trusted workflow')
+    content = 'trusted workflow'
+    assert.equal(await workflowTrusted(path, head), true)
+    content = 'changed workflow'
+    assert.equal(await workflowTrusted(path, head), false)
+  }
+})
+
+test('Pages verifies previews with revision and build jobs and excludes draft and Dependabot PRs', async context => {
+  const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-preview-policy-'))
+  const previousDirectory = process.cwd()
+  const previousArguments = process.argv
+  const previousEnvironment = { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY, GH_TOKEN: process.env.GH_TOKEN }
+  context.after(() => {
+    process.chdir(previousDirectory)
+    process.argv = previousArguments
+    for (const [key, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(temporary, { recursive: true, force: true })
+  })
+  process.chdir(temporary)
+  process.argv = [process.execPath, resolve(root, 'scripts/site-ci.ts'), 'verify']
+  process.env.GITHUB_REPOSITORY = repository
+  process.env.GH_TOKEN = 'fixture-token'
+  const pr = {
+    number: 7, draft: false, user: { login: 'contributor' }, labels: [],
+    head: { sha: 'a'.repeat(40), repo: { full_name: repository } },
+    base: { sha: 'b'.repeat(40), ref: 'main', repo: { full_name: repository } },
+  }
+  const workflow = readFileSync(resolve(root, '.github/workflows/preview.yml'), 'utf8')
+  mkdirSync('.github/workflows', { recursive: true })
+  writeFileSync('.github/workflows/preview.yml', workflow)
+  const run = {
+    id: 123, run_attempt: 1, event: 'pull_request', path: '.github/workflows/preview.yml',
+    conclusion: 'success', head_sha: pr.head.sha, head_repository: pr.head.repo,
+    pull_requests: [{ number: pr.number }],
+  }
+  const artifact = {
+    id: 456, name: `preview-${pr.number}-${pr.head.sha}-1`, expired: false,
+    size_in_bytes: 1024, workflow_run: { id: run.id },
+  }
+  writeJson(resolve(temporary, 'site-state.json'), {
+    main: pr.base.sha, data: null,
+    open: [{ number: pr.number, head: pr.head.sha, base: pr.base.sha }],
+    previews: [{ number: pr.number, head: pr.head.sha, base: pr.base.sha,
+      runId: run.id, attempt: run.run_attempt, artifactId: artifact.id, includePending: true }],
+  }, false)
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname.replace(`/repos/${repository}/`, '')
+    const responses: Record<string, unknown> = {
+      'git/ref/heads/main': { object: { sha: pr.base.sha } },
+      'git/matching-refs/heads/data': [],
+      pulls: [pr, { ...pr, number: 8, user: { login: 'dependabot[bot]' } }, { ...pr, number: 9, draft: true }],
+      'pulls/7': pr,
+      'actions/runs/123': run,
+      'actions/artifacts/456': artifact,
+      'actions/runs/123/attempts/1/jobs': { jobs: [
+        { name: 'revision', conclusion: 'success' }, { name: 'build', conclusion: 'success' },
+      ] },
+      'contents/.github/workflows/preview.yml': { encoding: 'base64', content: Buffer.from(workflow).toString('base64') },
+    }
+    assert.ok(path in responses, `Unexpected GitHub request: ${path}`)
+    return Response.json(responses[path])
+  })
+  await import('./site-ci.ts')
 })
 
 test('CI archival and promotion with simulated GitHub and Git', async context => {
@@ -354,13 +468,16 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   process.env.GITHUB_REPOSITORY = repository
   process.env.GH_TOKEN = 'fixture-token'
   process.env.GITHUB_EVENT_NAME = 'workflow_run'
+  process.env.GITHUB_RUN_ID = '999'
+  process.env.GITHUB_RUN_ATTEMPT = '2'
   const eventPath = resolve(temporary, 'event.json')
   process.env.GITHUB_EVENT_PATH = eventPath
   const notification = { workflow_run: {
-    id: 12345, run_attempt: 1, event: 'pull_request', conclusion: 'success', pull_requests: [{ number: 7 }],
+    id: 12345, run_attempt: 1, event: 'pull_request', conclusion: 'success', head_sha: 'a'.repeat(40), pull_requests: [{ number: 7 }],
   } }
   writeJson(eventPath, notification, false)
   const workflow = readFileSync(resolve(root, '.github/workflows/benchmark.yml'), 'utf8')
+  let workflowContent = workflow
   const bundle = fixture()
   const pr = {
     number: 7, base: { ref: 'main', repo: { full_name: repository }, sha: bundle.run.pullRequest!.base },
@@ -377,9 +494,19 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     ...Array.from({ length: 108 }, (_, index) => `measure (${index})`),
   ].map(name => ({ name, conclusion: 'success' }))
   let retryJobs: typeof jobs = []
-  context.mock.method(globalThis, 'fetch', async (url: string) => {
+  const statuses: any[] = []
+  context.mock.method(globalThis, 'fetch', async (url: string, options?: RequestInit) => {
     const parsed = new URL(url)
     const path = parsed.pathname.replace(`/repos/${repository}/`, '')
+    if (path.startsWith('statuses/')) {
+      assert.equal(path, `statuses/${pr.head.sha}`)
+      assert.equal(options?.method, 'POST')
+      const status = JSON.parse(String(options?.body))
+      assert.equal(status.context, 'Benchmark Publication')
+      assert.equal(status.target_url, `https://github.com/${repository}/actions/runs/999/attempts/2`)
+      statuses.push(status)
+      return Response.json(status)
+    }
     if (path.endsWith('/jobs')) {
       const page = Number(parsed.searchParams.get('page'))
       const response = structuredClone(path.includes('/attempts/2/') ? retryJobs : jobs)
@@ -390,14 +517,11 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       'pulls/7': pr,
       [`commits/${pr.merge_commit_sha}/pulls`]: [pr],
       [`commits/${'d'.repeat(40)}/pulls`]: [pr],
-      'pulls/7/files': [{ filename: 'README.md' }],
-      'issues/7/events': [{ event: 'labeled', label: { name: 'benchmarks: skip' }, actor: { login: 'maintainer' } }],
-      'collaborators/maintainer/permission': { permission: 'write' },
       'actions/runs/12345/attempts/1': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
       'actions/runs/12345/attempts/2': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
-      'contents/.github/workflows/benchmark.yml': { encoding: 'base64', content: Buffer.from(workflow).toString('base64') },
+      'contents/.github/workflows/benchmark.yml': { encoding: 'base64', content: Buffer.from(workflowContent).toString('base64') },
       [`git/commits/${bundle.run.commit.sha}`]: { tree: { sha: bundle.run.commit.tree }, parents: [{ sha: bundle.run.pullRequest!.base }, { sha: bundle.run.pullRequest!.head }] },
-      [`git/commits/${pr.merge_commit_sha}`]: { tree: { sha: mergedTree } },
+      [`git/commits/${pr.merge_commit_sha}`]: { tree: { sha: mergedTree }, message: 'Benchmark results (#7)' },
     }
     assert.ok(path in responses, `Unexpected GitHub request: ${path}`)
     return Response.json(responses[path])
@@ -429,6 +553,7 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     assert.equal(downloads, 1)
     assert.deepEqual(readJson(resolve(temporary, 'data-store/index.json')), { schemaVersion: 1, runs: [] })
     assert.ok(existsSync(resolve(temporary, 'data-store/policies/12345/1.json')))
+    assert.deepEqual(statuses.map(status => status.state), ['pending', 'success'])
   })
   await context.test('main push promotes the archived candidate through commit association', async () => {
     pr.merged = true
@@ -471,6 +596,7 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     workflowHead = pr.head.sha
     failedJob = true
     await assert.rejects(main(), /successful eligibility/)
+    assert.equal(statuses.at(-1).state, 'failure')
     failedJob = false
     assert.equal(downloads, 0)
     assert.equal(pushes, 0)
@@ -511,6 +637,59 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     assert.equal(downloads, 0)
     assert.equal(pushes, 0)
     pr.labels = []
+  })
+  await context.test('cache-warming completions do not archive results', async () => {
+    clearStore()
+    writeJson(eventPath, { workflow_run: { ...notification.workflow_run, event: 'push' } }, false)
+    try {
+      await main()
+      assert.equal(downloads, 0)
+      assert.equal(pushes, 0)
+      assert.equal(existsSync(resolve(temporary, 'data-store')), false)
+    } finally {
+      writeJson(eventPath, notification, false)
+    }
+  })
+  await context.test('stale notifications cannot update the current PR status', async () => {
+    const count = statuses.length
+    writeJson(eventPath, { workflow_run: { ...notification.workflow_run, head_sha: 'e'.repeat(40) } }, false)
+    try {
+      await assert.rejects(main(), /stale/)
+      assert.equal(statuses.length, count)
+    } finally {
+      writeJson(eventPath, notification, false)
+    }
+  })
+  await context.test('changed workflows cannot archive before matching main', async () => {
+    clearStore()
+    workflowContent = `${workflow}\n`
+    pr.merged = false
+    pr.state = 'open'
+    try {
+      await assert.rejects(main(), /workflow must match current main/)
+      assert.equal(downloads, 0)
+      assert.equal(pushes, 0)
+      assert.equal(statuses.at(-1).state, 'failure')
+    } finally {
+      workflowContent = workflow
+      pr.merged = true
+      pr.state = 'closed'
+      clearStore()
+    }
+  })
+  await context.test('merge with no archive reports failure and requires manual archival', async () => {
+    clearStore()
+    process.env.GITHUB_EVENT_NAME = 'push'
+    writeJson(eventPath, { ref: 'refs/heads/main', after: pr.merge_commit_sha, commits: [{ id: pr.merge_commit_sha }] }, false)
+    try {
+      await assert.rejects(main(), /pending results are missing/)
+      assert.equal(downloads, 0)
+      assert.equal(pushes, 0)
+      assert.equal(statuses.at(-1).state, 'failure')
+    } finally {
+      process.env.GITHUB_EVENT_NAME = 'workflow_run'
+      writeJson(eventPath, notification, false)
+    }
   })
   await context.test('promotion failure after merge still retains the valid archive remotely', async () => {
     clearStore()

@@ -122,7 +122,10 @@ export const runKey = (bundle: RunBundle) => `${bundle.run.id}.${bundle.run.atte
 
 export const historyIndexSchema = z.object({
   schemaVersion: z.literal(1),
-  runs: z.array(z.object({ id: identifier, attempt: positiveInteger })),
+  runs: z.array(z.object({
+    id: identifier, attempt: positiveInteger,
+    displayCommit: z.object({ sha, message: text, url: httpUrl }).optional(),
+  })),
   preview: z.object({
     number: positiveInteger,
     head: sha,
@@ -144,7 +147,7 @@ export const publicationSchema = z.object({
   schemaVersion: z.literal(1),
   run: historyIndexSchema.shape.runs.element,
   pullRequest: pullRequestSchema,
-  merge: z.object({ sha, tree: sha, mergedAt: timestamp }),
+  merge: z.object({ sha, tree: sha, mergedAt: timestamp, message: text }),
 })
 
 export function validatePublication(bundle: RunBundle, input: unknown) {

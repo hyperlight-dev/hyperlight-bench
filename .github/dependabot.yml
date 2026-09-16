@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - 'benchmarks: skip'
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /js/default
+    schedule:
+      interval: weekly
+    labels:
+      - 'benchmarks: skip'
+  - package-ecosystem: cargo
+    directories:
+      - /
+      - /crates/handler-rs
+      - /crates/hyperlight-dummy-guest
+    schedule:
+      interval: weekly
+    labels:
+      - 'benchmarks: skip'

@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicationPolicy } from '../shared/catalog.ts'
 import { historyRunPath, validatePublication, validatePublishableRun } from '../shared/results.ts'
-import { eligibility, github, pages } from './github-pr.ts'
+import { eligibility, github, pages, workflowTrusted } from './github-pr.ts'
 import { readJson, readOptionalJson, writeJson } from './result-store.ts'
 import { promoteRun, storeRun } from './publish-results.ts'
 
@@ -44,9 +44,8 @@ async function verifiedRun(runId: number, attempt: number) {
   if (run.event !== 'pull_request' || run.conclusion !== 'success' || run.path !== '.github/workflows/benchmark.yml') {
     throw new Error('Expected a successful PR Benchmark workflow attempt')
   }
-  const workflow = await github(`contents/.github/workflows/benchmark.yml?ref=${run.head_sha}`)
-  if (workflow.encoding !== 'base64' || Buffer.from(workflow.content, 'base64').toString('utf8') !== readFileSync('.github/workflows/benchmark.yml', 'utf8')) {
-    throw new Error('Benchmark workflow differs from the trusted workflow. Maintainer review and a fresh run are required.')
+  if (!await workflowTrusted('.github/workflows/benchmark.yml', run.head_sha)) {
+    throw new Error('Benchmark workflow must match current main. After merge, rerun this publication workflow.')
   }
   const latestJobs = new Map<string, any>()
   for (let currentAttempt = attempt; currentAttempt >= 1; currentAttempt--) {
@@ -107,9 +106,28 @@ async function promote(number: number) {
     schemaVersion: 1,
     run: { id: bundle.run.id, attempt: bundle.run.attempt },
     pullRequest: bundle.run.pullRequest,
-    merge: { sha: pr.merge_commit_sha, tree: merged.tree.sha, mergedAt: pr.merged_at },
+    merge: { sha: pr.merge_commit_sha, tree: merged.tree.sha, mergedAt: pr.merged_at, message: merged.message },
   })
   promoteRun(directory, publication, readJson(policyPath))
+}
+
+export async function withPublicationStatus(head: string, operation: () => Promise<void>) {
+  const report = (state: string, description: string) => github(`statuses/${head}`, {
+    state, context: 'Benchmark Publication', description,
+    target_url: `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`,
+  })
+  await report('pending', 'Validating benchmark publication')
+  try {
+    await operation()
+    await report('success', 'Benchmark publication completed')
+  } catch (error) {
+    try {
+      await report('failure', 'Benchmark publication failed. See workflow logs.')
+    } catch (statusError) {
+      console.error('Could not report publication failure:', statusError)
+    }
+    throw error
+  }
 }
 
 export async function main() {
@@ -130,8 +148,11 @@ export async function main() {
     if (!numbers.size) return
     openStore()
     for (const number of numbers) {
-      await promote(number)
-      pushStore()
+      const pr = await github(`pulls/${number}`)
+      await withPublicationStatus(pr.head.sha, async () => {
+        await promote(number)
+        pushStore()
+      })
     }
     return
   }
@@ -139,6 +160,12 @@ export async function main() {
   if (notification.event !== 'pull_request' || notification.conclusion !== 'success') return
   if (notification.pull_requests.length !== 1) throw new Error('Workflow must identify one PR')
   const number = notification.pull_requests[0].number
+  const current = await github(`pulls/${number}`)
+  if (current.head.sha !== notification.head_sha) throw new Error('Workflow is stale. A fresh benchmark run is required.')
+  await withPublicationStatus(notification.head_sha, () => archive(notification, number))
+}
+
+async function archive(notification: any, number: number) {
   const { pr, decision } = await eligibility(number)
   if (decision.mode === 'skip') {
     console.log(`PR ${number}: approved skip. No results archived.`)
@@ -155,7 +182,7 @@ export async function main() {
   await verifyCandidate(bundle, pr)
   validatePublication(bundle, {
     schemaVersion: 1, run: { id: bundle.run.id, attempt: bundle.run.attempt }, pullRequest: bundle.run.pullRequest,
-    merge: { sha: bundle.run.commit.sha, tree: bundle.run.commit.tree, mergedAt: bundle.run.createdAt },
+    merge: { sha: bundle.run.commit.sha, tree: bundle.run.commit.tree, mergedAt: bundle.run.createdAt, message: bundle.run.commit.message },
   })
   openStore()
   storeRun(directory, bundle)

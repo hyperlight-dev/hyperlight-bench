@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { assembleSite, previewBuildSchema } from './assemble-site.ts'
-import { eligibility, github, pages } from './github-pr.ts'
+import { eligibility, github, pages, workflowTrusted } from './github-pr.ts'
 import { canonicalJson } from '../shared/results.ts'
 import { readJson, writeJson } from './result-store.ts'
 
@@ -20,7 +20,7 @@ async function inputs() {
   const main = await github('git/ref/heads/main')
   const refs = await github('git/matching-refs/heads/data')
   const data = refs.find((entry: { ref: string }) => entry.ref === 'refs/heads/data')?.object.sha ?? null
-  const prs = (await pages('pulls?state=open&base=main')).filter(pr => !pr.draft)
+  const prs = (await pages('pulls?state=open&base=main')).filter(pr => !pr.draft && pr.user?.login !== 'dependabot[bot]')
   return {
     prs,
     snapshot: {
@@ -39,11 +39,9 @@ async function verifiedBuild(run: any, pr: any, artifact: any): Promise<boolean>
     || !run.pull_requests.some((entry: { number: number }) => entry.number === pr.number)) return false
   if (!artifact || artifact.expired || artifact.name !== `preview-${pr.number}-${pr.head.sha}-${run.run_attempt}`) return false
   if (artifact.size_in_bytes > 100 * 1024 ** 2) throw new Error(`Preview artifact is too large: ${artifact.name}`)
-  const trustedWorkflow = readFileSync('.github/workflows/preview.yml', 'utf8')
-  const workflow = await github(`contents/.github/workflows/preview.yml?ref=${run.head_sha}`)
-  if (workflow.encoding !== 'base64' || Buffer.from(workflow.content, 'base64').toString('utf8') !== trustedWorkflow) return false
+  if (!await workflowTrusted('.github/workflows/preview.yml', run.head_sha)) return false
   const jobs = await github(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`)
-  for (const jobName of ['revision', `Approve preview PR ${pr.number} at ${pr.head.sha}`, 'build']) {
+  for (const jobName of ['revision', 'build']) {
     const matches = jobs.jobs.filter((job: { name: string }) => job.name === jobName)
     if (matches.length !== 1 || matches[0].conclusion !== 'success') return false
   }
@@ -90,7 +88,7 @@ async function verify(desired: SiteState) {
     const run = await github(`actions/runs/${preview.runId}`)
     const artifact = await github(`actions/artifacts/${preview.artifactId}`)
     if (run.run_attempt !== preview.attempt || artifact.workflow_run?.id !== preview.runId
-      || !await verifiedBuild(run, pr, artifact)) throw new Error(`PR ${preview.number}: approved preview build changed. Rerun Pages.`)
+      || !await verifiedBuild(run, pr, artifact)) throw new Error(`PR ${preview.number}: preview build changed. Rerun Pages.`)
     const { decision } = await eligibility(preview.number)
     if (decision.head !== preview.head || decision.base !== preview.base
       || (decision.mode === 'required') !== preview.includePending) throw new Error('Preview eligibility changed. Rerun Pages.')

@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
   actions: read
   pull-requests: read
   issues: read
@@ -19,6 +20,7 @@ concurrency:
 
 jobs:
   publish:
+    if: github.event_name == 'push' || github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
