@@ -49,7 +49,7 @@
         "execution": "wasm-aot"
       },
       {
-        "id": "hyperlight-wasm-pulley",
+        "id": "hyperlight-wasm-pulley-jco",
         "engine": "StarlingMonkey",
         "description": "jco component, Pulley interpreter, inside Hyperlight.",
         "execution": "wasm-pulley"
@@ -335,32 +335,32 @@
         "strategy": "new"
       },
       {
-        "runtimeId": "hyperlight-wasm-pulley",
+        "runtimeId": "hyperlight-wasm-pulley-jco",
         "platformId": "kvm",
         "strategy": "reload"
       },
       {
-        "runtimeId": "hyperlight-wasm-pulley",
+        "runtimeId": "hyperlight-wasm-pulley-jco",
         "platformId": "kvm",
         "strategy": "reuse"
       },
       {
-        "runtimeId": "hyperlight-wasm-pulley",
+        "runtimeId": "hyperlight-wasm-pulley-jco",
         "platformId": "kvm",
         "strategy": "new"
       },
       {
-        "runtimeId": "hyperlight-wasm-pulley",
+        "runtimeId": "hyperlight-wasm-pulley-jco",
         "platformId": "mshv3",
         "strategy": "reload"
       },
       {
-        "runtimeId": "hyperlight-wasm-pulley",
+        "runtimeId": "hyperlight-wasm-pulley-jco",
         "platformId": "mshv3",
         "strategy": "reuse"
       },
       {
-        "runtimeId": "hyperlight-wasm-pulley",
+        "runtimeId": "hyperlight-wasm-pulley-jco",
         "platformId": "mshv3",
         "strategy": "new"
       },
@@ -54225,7 +54225,7 @@
     {
       "id": "kvm-hyperlight-wasm-pulley-new",
       "runnerId": "kvm-hyperlight-wasm-pulley-new",
-      "runtimeId": "hyperlight-wasm-pulley",
+      "runtimeId": "hyperlight-wasm-pulley-jco",
       "strategy": "new",
       "rawOutputs": [
         {
@@ -54328,7 +54328,7 @@
     {
       "id": "kvm-hyperlight-wasm-pulley-reload",
       "runnerId": "kvm-hyperlight-wasm-pulley-reload",
-      "runtimeId": "hyperlight-wasm-pulley",
+      "runtimeId": "hyperlight-wasm-pulley-jco",
       "strategy": "reload",
       "rawOutputs": [
         {
@@ -54431,7 +54431,7 @@
     {
       "id": "kvm-hyperlight-wasm-pulley-reuse",
       "runnerId": "kvm-hyperlight-wasm-pulley-reuse",
-      "runtimeId": "hyperlight-wasm-pulley",
+      "runtimeId": "hyperlight-wasm-pulley-jco",
       "strategy": "reuse",
       "rawOutputs": [
         {
@@ -59787,7 +59787,7 @@
     {
       "id": "mshv3-hyperlight-wasm-pulley-new",
       "runnerId": "mshv3-hyperlight-wasm-pulley-new",
-      "runtimeId": "hyperlight-wasm-pulley",
+      "runtimeId": "hyperlight-wasm-pulley-jco",
       "strategy": "new",
       "rawOutputs": [
         {
@@ -59890,7 +59890,7 @@
     {
       "id": "mshv3-hyperlight-wasm-pulley-reload",
       "runnerId": "mshv3-hyperlight-wasm-pulley-reload",
-      "runtimeId": "hyperlight-wasm-pulley",
+      "runtimeId": "hyperlight-wasm-pulley-jco",
       "strategy": "reload",
       "rawOutputs": [
         {
@@ -59993,7 +59993,7 @@
     {
       "id": "mshv3-hyperlight-wasm-pulley-reuse",
       "runnerId": "mshv3-hyperlight-wasm-pulley-reuse",
-      "runtimeId": "hyperlight-wasm-pulley",
+      "runtimeId": "hyperlight-wasm-pulley-jco",
       "strategy": "reuse",
       "rawOutputs": [
         {
