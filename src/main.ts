@@ -301,8 +301,9 @@ function renderDashboard(data: Dataset) {
                 const renderPoint = (point: typeof dataPoints[number], ranked: boolean) => {
                   const entry = series[point.datasetIndex]!
                   const family = groupedSeries.find(group => group.entries.includes(entry))!.label
-                  return `<div title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}<span>${ranked ? `<span class="tooltip-family">${escapeHtml(family)}</span> ` : ''}${escapeHtml(entry.shortLabel)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`
+                  return `<div title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}${ranked ? `<span class="tooltip-family">${escapeHtml(family)}</span>` : ''}<span class="tooltip-variant">${escapeHtml(entry.shortLabel)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`
                 }
+                popup.querySelector<HTMLElement>('.tooltip-values')!.dataset.mode = tooltipMode
                 popup.querySelector('.tooltip-values')!.innerHTML = tooltipMode === 'ranked'
                   ? dataPoints.map(point => renderPoint(point, true)).join('')
                   : groupedSeries.map(group => {
