@@ -20,7 +20,15 @@ permissions:
   issues: read
 
 concurrency:
-  group: pages-deployment
+  group: >-
+    ${{ (
+      inputs.publication || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' ||
+      github.event_name == 'pull_request_target' && github.event.pull_request.user.login != 'dependabot[bot]' &&
+      (github.event.action != 'closed' || !github.event.pull_request.merged) &&
+      (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || github.event.label.name == 'benchmarks: skip') &&
+      (github.event.action != 'edited' || github.event.changes.base)
+    ) && 'pages-deployment' || format('pages-ignored-{0}-{1}', github.run_id, github.run_attempt) }}
   queue: max
 
 jobs:

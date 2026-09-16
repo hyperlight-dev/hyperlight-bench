@@ -82,6 +82,17 @@ flowchart TB
 	ResultPath -->|Read stored results| After
 ```
 
+## Website Previews
+
+One GitHub Pages deployment contains separate HTML, JavaScript, and CSS builds:
+
+* `/` serves website code from `main` with published benchmark history.
+* `/previews/pr-N/` serves website code from PR N with published history and matching validated pending results when available.
+
+Previews show UI changes before merge, even when pending benchmark results are unavailable.
+After a PR is merged or closed, the next successful Pages deployment removes its preview.
+The preview URL then returns 404.
+
 ## CI Rules
 
 * `benchmarks: skip` skips measurement and result publication. Dependabot applies it automatically.

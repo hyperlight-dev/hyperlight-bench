@@ -4,7 +4,7 @@ import '@fontsource/ibm-plex-sans/600.css'
 import '@fontsource/ibm-plex-mono/400.css'
 import './style.css'
 import { Chart, registerables } from 'chart.js'
-import { createIcons, Download, Link, ArrowUpRight, AlertTriangle, RotateCcw } from 'lucide'
+import { createIcons, Download, Link, ArrowUpRight, AlertTriangle, RotateCcw, ChevronRight } from 'lucide'
 import { loadDataset } from './data'
 import { catalog } from '../shared/catalog.ts'
 import { runSelectionSchema } from '../shared/results.ts'
@@ -15,7 +15,7 @@ Chart.defaults.font.family = 'IBM Plex Sans'
 Chart.defaults.color = '#626b66'
 
 const palette = ['#65736a', '#93663c', '#2f66cb', '#e06b2f', '#968526', '#148c87', '#a34764', '#7159b5', '#438333', '#bf4961', '#427992']
-const icons = { Download, Link, ArrowUpRight, AlertTriangle, RotateCcw }
+const icons = { Download, Link, ArrowUpRight, AlertTriangle, RotateCcw, ChevronRight }
 const strategyDescriptions: Record<Strategy, string> = {
   reload: 'Restore the sandbox for each request.',
   reuse: 'Keep the sandbox as-is across requests.',
@@ -106,7 +106,7 @@ function renderDashboard(data: Dataset) {
           <section class="snapshot-section" aria-labelledby="snapshot-title"><div class="snapshot-heading"><div><span class="eyebrow">COMMIT SNAPSHOT</span><h2 id="snapshot-title"></h2><p id="commit-message"></p></div><div><label for="run" class="sr-only">Selected commit</label><select id="run"></select><a id="commit-link" target="_blank" rel="noopener noreferrer" hidden>View commit <i data-lucide="arrow-up-right"></i></a><a id="pr-link" target="_blank" rel="noopener noreferrer" hidden><span id="pr-link-label">View PR</span> <i data-lucide="arrow-up-right"></i></a></div></div>
             <div class="table-scroll"><table><thead><tr><th scope="col">Rank</th><th scope="col">Runtime</th><th scope="col">Platform</th><th scope="col" id="value-heading"></th><th scope="col">% of largest selected value<div class="relative-scale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div></th></tr></thead><tbody id="results-body"></tbody></table></div>
           </section>
-          <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table><thead><tr><th>Platform</th><th>CPU</th><th>vCPUs</th><th>Cores</th><th>Azure VM SKU</th><th>Operating system</th><th>Memory (GiB)</th><th>Runner pool</th><th>Region</th><th>Runners</th></tr></thead><tbody id="runner-details"></tbody></table></div></details>
+          <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table><thead><tr><th id="runner-expand-heading" class="runner-expand-cell" hidden><span class="sr-only">Runtime assignments</span></th><th>Platform</th><th>CPU</th><th>vCPUs</th><th>Cores</th><th>Azure VM SKU</th><th>Operating system</th><th>Memory (GiB)</th><th>Runner pool</th><th>Region</th><th>Runners</th></tr></thead><tbody id="runner-details"></tbody></table></div></details>
         </div>
       </div>
       <footer><span>${data.source === 'synthetic' ? 'Demo data. Synthetic measurements.' : 'Hyperlight HTTP Benchmarks'}</span></footer>
@@ -165,25 +165,51 @@ function renderDashboard(data: Dataset) {
     if (pr) {
       prLink.href = `https://github.com/${pr.repository}/pull/${pr.number}`
     }
-    const groups = new Map<string, { cells: (string | number | null)[], names: Set<string> }>()
+    const rows = rowsFor(selectedRunId)
+    const groups = new Map<string, { platformId: string, cells: (string | number | null)[], names: Set<string>, runtimes: Set<string> }>()
+    const groupCounts = new Map<string, number>()
     for (const platform of data.platforms.filter(platform => selectedPlatforms.has(platform.id))) {
       for (const runner of run.runners.filter(runner => runner.platformId === platform.id)) {
+        const measurements = rows.filter(row => row.runnerId === runner.id)
+        if (!measurements.length) continue
         const cells = [platform.label, runner.cpu.model, runner.cpu.logicalProcessors, runner.cpu.cores, runner.sku, [runner.os.name, runner.os.version, runner.os.architecture].filter(Boolean).join(' '), (runner.memoryBytes / 1024 ** 3).toFixed(1), runner.pool, runner.region]
         const key = JSON.stringify([platform.id, runner.os.name, runner.os.version, runner.os.architecture, ...cells])
         const group = groups.get(key)
-        if (group) group.names.add(runner.name)
-        else groups.set(key, {
-          cells,
-          names: new Set([runner.name]),
-        })
+        if (group) {
+          group.names.add(runner.name)
+          for (const measurement of measurements) group.runtimes.add(measurement.runtimeId)
+        }
+        else {
+          groups.set(key, {
+            platformId: platform.id,
+            cells,
+            names: new Set([runner.name]),
+            runtimes: new Set(measurements.map(measurement => measurement.runtimeId)),
+          })
+          groupCounts.set(platform.id, (groupCounts.get(platform.id) ?? 0) + 1)
+        }
       }
     }
-    element('#runner-details').innerHTML = groups.size ? [...groups.values()].map(group => {
+    const showRuntimeAssignments = [...groupCounts.values()].some(count => count > 1)
+    element('#runner-expand-heading').hidden = !showRuntimeAssignments
+    element('#runner-details').innerHTML = groups.size ? [...groups.values()].map((group, index) => {
       const cells = [...group.cells, group.names.size]
-      return `<tr>${cells.map(value => `<td>${escapeHtml(String(value ?? '-'))}</td>`).join('')}</tr>`
-    }).join('') : '<tr><td colspan="10" class="empty-table">No platforms selected.</td></tr>'
+      const expandable = (groupCounts.get(group.platformId) ?? 0) > 1
+      const detailId = `runner-assignments-${index}`
+      const label = escapeHtml(`Runtimes for ${group.cells[0]}, ${group.cells[1] || 'Unknown CPU'}`)
+      const toggle = expandable ? `<button type="button" class="icon-button runner-toggle" aria-expanded="false" aria-controls="${detailId}" aria-label="${label}" title="${label}"><i data-lucide="chevron-right"></i></button>` : ''
+      const assignments = expandable ? `<tr id="${detailId}" class="runner-assignments" hidden><td colspan="11"><div class="runner-assignment-content"><strong>Runtimes (${group.runtimes.size})</strong><ul>${[...group.runtimes].sort().map(runtime => `<li>${escapeHtml(runtime)}</li>`).join('')}</ul></div></td></tr>` : ''
+      return `<tr>${showRuntimeAssignments ? `<td class="runner-expand-cell">${toggle}</td>` : ''}${cells.map(value => `<td>${escapeHtml(String(value ?? '-'))}</td>`).join('')}</tr>${assignments}`
+    }).join('') : '<tr><td colspan="10" class="empty-table">No measurements selected.</td></tr>'
+    element('#runner-details').querySelectorAll<HTMLButtonElement>('.runner-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const expanded = button.getAttribute('aria-expanded') !== 'true'
+        button.setAttribute('aria-expanded', String(expanded))
+        element(`#${button.getAttribute('aria-controls')}`).hidden = !expanded
+      })
+    })
+    createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
     element('#value-heading').textContent = `${metric().label} (${metric().unit})`
-    const rows = rowsFor(selectedRunId)
     const maximum = Math.max(...rows.map(entry => entry.values[metricId]), 0)
     element('#results-body').innerHTML = rows.length ? rows.map((entry, index) => {
       const percentage = maximum > 0 ? entry.values[metricId] / maximum * 100 : 0
@@ -215,7 +241,7 @@ function renderDashboard(data: Dataset) {
       label: `${runtime.id}${selectedPlatforms.size > 1 ? ` / ${platform.label}` : ''}`,
       data: runs.map(run => data.measurements.find(entry => entry.runId === run.id && entry.runtimeId === runtime.id && entry.platformId === platform.id && entry.strategy === strategy)?.values[metricId] ?? null),
       borderColor: color(runtime.id), backgroundColor: color(runtime.id), borderWidth: 2,
-      borderDash: platform.id === 'mshv3' ? [6, 4] : [],
+      borderDash: platform.id === 'kvm' ? [6, 4] : [],
       tension: 0, pointRadius: 2.5, pointHoverRadius: 5, pointBorderWidth: 1, pointBackgroundColor: '#fff',
     })))
     element('#series-count').textContent = `${series.length} series`
@@ -281,12 +307,20 @@ function renderDashboard(data: Dataset) {
       if (!row.hidden) visible++
     })
     element('#search-empty').hidden = visible !== 0
+    element('#select-all').textContent = query ? 'Select matches' : 'Select all'
+    element('#select-none').textContent = query ? 'Clear matches' : 'Clear'
   })
   function syncRuntimeInputs() {
     app.querySelectorAll<HTMLInputElement>('#runtime-list input').forEach(input => input.checked = selectedRuntimes.has(input.value))
   }
-  element('#select-all').onclick = () => { data.runtimes.forEach(runtime => selectedRuntimes.add(runtime.id)); syncRuntimeInputs(); update() }
-  element('#select-none').onclick = () => { selectedRuntimes.clear(); syncRuntimeInputs(); update() }
+  element('#select-all').onclick = () => {
+    app.querySelectorAll<HTMLInputElement>('[data-runtime]:not([hidden]) input').forEach(input => selectedRuntimes.add(input.value))
+    syncRuntimeInputs(); update()
+  }
+  element('#select-none').onclick = () => {
+    app.querySelectorAll<HTMLInputElement>('[data-runtime]:not([hidden]) input').forEach(input => selectedRuntimes.delete(input.value))
+    syncRuntimeInputs(); update()
+  }
   element('#reset').onclick = () => {
     selectedRuntimes.clear(); defaultRuntimes.forEach(id => selectedRuntimes.add(id))
     selectedPlatforms.clear(); selectedPlatforms.add(defaultPlatform)
@@ -296,6 +330,8 @@ function renderDashboard(data: Dataset) {
     element<HTMLInputElement>('#runtime-search').value = ''
     app.querySelectorAll<HTMLElement>('[data-runtime]').forEach(row => row.hidden = false)
     element('#search-empty').hidden = true
+    element('#select-all').textContent = 'Select all'
+    element('#select-none').textContent = 'Clear'
     update()
   }
   app.querySelectorAll<HTMLButtonElement>('[data-strategy]').forEach(button => button.onclick = () => { strategy = button.dataset.strategy as Strategy; update() })
