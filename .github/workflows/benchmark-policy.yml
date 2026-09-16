@@ -11,16 +11,12 @@ permissions:
   issues: read
 
 concurrency:
-  group: >-
-    benchmark-policy-${{ github.event.pull_request.number }}-${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'benchmarks: skip' || github.event.action == 'edited' && !github.event.changes.base) && github.run_id || 'current' }}
+  group: benchmark-policy-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   policy:
-    name: >-
-      ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'benchmarks: skip' || github.event.action == 'edited' && !github.event.changes.base) && 'Ignored policy event' || 'Benchmark Policy' }}
-    if: >-
-      ${{ (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || github.event.label.name == 'benchmarks: skip') && (github.event.action != 'edited' || github.event.changes.base) }}
+    name: Benchmark Policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
