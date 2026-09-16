@@ -73,11 +73,20 @@ function renderDashboard(data: Dataset) {
   } catch {}
   let renderTooltipContents = () => {}
   let tooltipHideTimer: ReturnType<typeof setTimeout> | undefined
+  const dummyOrder: Record<string, number> = {
+    dummy: 0,
+    'hyperlight-dummy': 1,
+    'hyperlight-wasm-dummy': 2,
+    'hyperlight-wasm-pulley-dummy': 3,
+    'wasmtime-dummy': 4,
+    'wasmtime-aot-dummy': 5,
+    'wasmtime-pulley-dummy': 6,
+  }
   const runtimeGroups = [
     { label: 'Hyperlight JS', shape: 'circle', runtimes: data.runtimes.filter(runtime => runtime.id === 'hyperlight-js') },
-    { label: 'Hyperlight Wasm', shape: 'square', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hyperlight-wasm-') && !runtime.id.endsWith('-dummy')) },
+    { label: 'Hyperlight Wasm', shape: 'square', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hyperlight-wasm-') && !runtime.id.endsWith('-dummy')).sort((first, second) => Number(first.id.includes('-pulley')) - Number(second.id.includes('-pulley'))) },
     { label: 'Wasmtime', shape: 'diamond', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('wasmtime-') && !runtime.id.endsWith('-dummy')) },
-    { label: 'Dummy', shape: 'triangle', runtimes: data.runtimes.filter(runtime => runtime.id === 'dummy' || runtime.id.endsWith('-dummy')) },
+    { label: 'Dummy', shape: 'triangle', runtimes: data.runtimes.filter(runtime => runtime.id === 'dummy' || runtime.id.endsWith('-dummy')).sort((first, second) => (dummyOrder[first.id] ?? Number.MAX_SAFE_INTEGER) - (dummyOrder[second.id] ?? Number.MAX_SAFE_INTEGER)) },
   ]
   const runtimeMarker = (runtimeId: string, markerColor: string) => {
     const shape = runtimeGroups.find(group => group.runtimes.some(runtime => runtime.id === runtimeId))?.shape ?? 'square'
@@ -259,7 +268,7 @@ function renderDashboard(data: Dataset) {
     element('#results-body').innerHTML = rows.length ? rankedRows.map(entry => {
       const percentage = maximum > 0 ? entry.values[metricId] / maximum * 100 : 0
       const family = runtimeGroups.find(group => group.runtimes.some(runtime => runtime.id === entry.runtimeId))!.label
-      return `<tr><td class="rank">${String(rows.indexOf(entry) + 1).padStart(2, '0')}</td><td title="${escapeHtml(entry.runtimeId)}"><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}<span class="snapshot-runtime"><strong>${escapeHtml(family)}</strong><span>${escapeHtml(shortRuntimeName(entry.runtimeId))}</span></span></span></td>${showSnapshotPlatform ? `<td><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td>` : ''}<td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
+      return `<tr><td class="rank">${String(rows.indexOf(entry) + 1).padStart(2, '0')}</td><td title="${escapeHtml(entry.runtimeId)}"><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}<span class="snapshot-runtime"><strong>${escapeHtml(family)}</strong><span>${escapeHtml(shortRuntimeName(entry.runtimeId))}</span></span></span></td>${showSnapshotPlatform ? `<td data-platform="${escapeHtml(entry.platformId)}"><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td>` : ''}<td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
     }).join('') : `<tr><td colspan="${showSnapshotPlatform ? 5 : 4}" class="empty-table">No measurements selected.</td></tr>`
     const snapshotValue = (runtimeId: string, platformId: string) => rows.find(row => row.runtimeId === runtimeId && row.platformId === platformId)?.values[metricId]
     element('#snapshot-grouped').innerHTML = `<table><thead><tr><th scope="col">Variant</th>${snapshotPlatforms.map(platform => sortHeader(platform.id, `${showSnapshotPlatform ? platform.label : currentMetric.label} (${currentMetric.unit})`)).join('')}</tr></thead><tbody>${runtimeGroups.map(group => {
@@ -315,7 +324,7 @@ function renderDashboard(data: Dataset) {
     element('#empty-chart').hidden = series.length > 0
     const groupedSeries = runtimeGroups.map(group => ({
       ...group,
-      entries: series.filter(entry => group.runtimes.some(runtime => runtime.id === entry.runtimeId)),
+      entries: group.runtimes.flatMap(runtime => series.filter(entry => runtime.id === entry.runtimeId)),
     })).filter(group => group.entries.length)
     element('#chart-legend').innerHTML = groupedSeries.map(group => `<section class="legend-group"><h3>${escapeHtml(group.label)}</h3><div>${group.entries.map(entry => `<span title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}<span class="legend-line" style="border-color:${entry.borderColor};border-style:${entry.borderDash.length ? 'dashed' : 'solid'}"></span>${escapeHtml(entry.shortLabel)}</span>`).join('')}</div></section>`).join('')
     element('#chart-tooltip').hidden = true
