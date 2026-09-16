@@ -4,7 +4,7 @@ import '@fontsource/ibm-plex-sans/600.css'
 import '@fontsource/ibm-plex-mono/400.css'
 import './style.css'
 import { Chart, registerables } from 'chart.js'
-import { createIcons, Download, Link, ArrowUpRight, AlertTriangle, RotateCcw, ChevronRight } from 'lucide'
+import { createIcons, Download, Link, ArrowUpRight, AlertTriangle, RotateCcw, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide'
 import { loadDataset } from './data'
 import { catalog } from '../shared/catalog.ts'
 import { runSelectionSchema } from '../shared/results.ts'
@@ -15,7 +15,7 @@ Chart.defaults.font.family = 'IBM Plex Sans'
 Chart.defaults.color = '#626b66'
 
 const palette = ['#65736a', '#93663c', '#2f66cb', '#e06b2f', '#968526', '#148c87', '#a34764', '#7159b5', '#438333', '#bf4961', '#427992']
-const icons = { Download, Link, ArrowUpRight, AlertTriangle, RotateCcw, ChevronRight }
+const icons = { Download, Link, ArrowUpRight, AlertTriangle, RotateCcw, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown }
 const strategyDescriptions: Record<Strategy, string> = {
   reload: 'Restore the sandbox for each request.',
   reuse: 'Keep the sandbox as-is across requests.',
@@ -56,9 +56,18 @@ function renderDashboard(data: Dataset) {
   let range = params.get('range') === '7' ? 7 : 14
   const selectedRuntimes = new Set((params.has('runtimes') ? params.get('runtimes')!.split(',') : defaultRuntimes).filter(id => data.runtimes.some(runtime => runtime.id === id)))
   const selectedPlatforms = new Set<PlatformId>((params.has('platforms') ? params.get('platforms')!.split(',') : [defaultPlatform]).filter(id => data.platforms.some(platform => platform.id === id)) as PlatformId[])
+  const hardwareColors = (values: (string | null | undefined)[], tints: string[]) => new Map(
+    [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))].sort()
+      .map((value, index) => [value, tints[index % tints.length]!]),
+  )
+  const cpuColors = hardwareColors(data.runs.flatMap(run => run.runners.map(runner => runner.cpu.model)), ['#e3edf9', '#e6f1e7', '#dcf0ef'])
+  const skuColors = hardwareColors(data.runs.flatMap(run => run.runners.map(runner => runner.sku)), ['#f8ead5', '#f2e5ef', '#f8e3df'])
   let selectedRunId = data.runs.find(run => run.id === params.get('run'))?.id ?? data.runs.at(-1)?.id ?? ''
   let chart: Chart<'line'> | undefined
   let tooltipMode = 'ranked'
+  let snapshotMode = 'ranked'
+  let snapshotSort: { platformId: string, bestFirst: boolean } | undefined
+  let comparisonSort: { platformId: string, bestFirst: boolean } | undefined
   try {
     if (localStorage.getItem('benchmark-tooltip-mode') === 'grouped') tooltipMode = 'grouped'
   } catch {}
@@ -75,7 +84,7 @@ function renderDashboard(data: Dataset) {
     return `<span class="runtime-swatch" data-shape="${shape}" style="background:${markerColor}" aria-hidden="true"></span>`
   }
   const shortRuntimeName = (runtimeId: string) => {
-    if (runtimeId === 'hyperlight-js') return 'JavaScript'
+    if (runtimeId === 'hyperlight-js') return 'QuickJS'
     const name = runtimeId === 'dummy' ? 'native' : runtimeId.endsWith('-dummy')
       ? runtimeId.slice(0, -6) : runtimeId.replace(/^(hyperlight-wasm|wasmtime)-/, '')
     const words: Record<string, string> = { native: 'Native', hyperlight: 'Hyperlight', wasm: 'Wasm', wasmtime: 'Wasmtime', aot: 'AOT', jco: 'JCO', qjs: 'QuickJS', pulley: 'Pulley' }
@@ -121,9 +130,11 @@ function renderDashboard(data: Dataset) {
             <div id="chart-legend" class="chart-legend"></div>
           </section>
           <section class="snapshot-section" aria-labelledby="snapshot-title"><div class="snapshot-heading"><div><span class="eyebrow">COMMIT SNAPSHOT</span><h2 id="snapshot-title"></h2><p id="commit-message"></p></div><div><label for="run" class="sr-only">Selected commit</label><select id="run"></select><a id="commit-link" target="_blank" rel="noopener noreferrer" hidden>View commit <i data-lucide="arrow-up-right"></i></a><a id="pr-link" target="_blank" rel="noopener noreferrer" hidden><span id="pr-link-label">View PR</span> <i data-lucide="arrow-up-right"></i></a></div></div>
-            <div class="table-scroll"><table><thead><tr><th scope="col">Rank</th><th scope="col">Runtime</th><th scope="col">Platform</th><th scope="col" id="value-heading"></th><th scope="col">% of largest selected value<div class="relative-scale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div></th></tr></thead><tbody id="results-body"></tbody></table></div>
+            <div class="snapshot-controls" role="group" aria-label="Snapshot ordering"><button type="button" data-snapshot-mode="ranked" aria-pressed="true">Ranked</button><button type="button" data-snapshot-mode="grouped" aria-pressed="false">Grouped</button></div>
+            <div class="table-scroll" id="snapshot-ranked"><table><thead><tr><th scope="col">Rank</th><th scope="col">Runtime</th><th scope="col" id="snapshot-platform-heading" ${selectedPlatforms.size > 1 ? '' : 'hidden'}>Platform</th><th scope="col" id="value-heading"></th><th scope="col">% of largest selected value<div class="relative-scale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div></th></tr></thead><tbody id="results-body"></tbody></table></div>
+            <div class="table-scroll" id="snapshot-grouped" hidden></div>
           </section>
-          <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table><thead><tr><th id="runner-expand-heading" class="runner-expand-cell" hidden><span class="sr-only">Runtime assignments</span></th><th>Platform</th><th>CPU</th><th>vCPUs</th><th>Cores</th><th>Azure VM SKU</th><th>Operating system</th><th>Memory (GiB)</th><th>Runner pool</th><th>Region</th><th>Runners</th></tr></thead><tbody id="runner-details"></tbody></table></div></details>
+          <details class="methodology"><summary>Runner specifications</summary><div class="table-scroll"><table class="runner-table"><thead><tr><th scope="col" id="runner-runtime-heading">Runtime</th><th scope="col" id="runner-platform-heading" ${selectedPlatforms.size > 1 ? '' : 'hidden'}>Platform</th><th scope="col">CPU</th><th scope="col">Azure VM SKU</th></tr></thead><tbody id="runner-details"></tbody></table></div><div id="runner-configurations"></div></details>
         </div>
       </div>
       <footer><span>${data.source === 'synthetic' ? 'Demo data. Synthetic measurements.' : 'Hyperlight HTTP Benchmarks'}</span></footer>
@@ -146,8 +157,8 @@ function renderDashboard(data: Dataset) {
     element('#run').innerHTML = '<option>No runs</option>'
     element('#snapshot-title').textContent = 'No run selected'
     element('#value-heading').textContent = data.metrics.find(metric => metric.id === metricId)!.label
-    element('#results-body').innerHTML = '<tr><td colspan="5" class="empty-table">No measurements available.</td></tr>'
-    element('#runner-details').innerHTML = '<tr><td colspan="10" class="empty-table">No runner data available.</td></tr>'
+    element('#results-body').innerHTML = `<tr><td colspan="${selectedPlatforms.size > 1 ? 5 : 4}" class="empty-table">No measurements available.</td></tr>`
+    element('#runner-details').innerHTML = `<tr><td colspan="${selectedPlatforms.size > 1 ? 4 : 3}" class="empty-table">No runner data available.</td></tr>`
     element('.chart-heading p:last-child').hidden = true
     element('.separator').hidden = true
     createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
@@ -183,55 +194,91 @@ function renderDashboard(data: Dataset) {
       prLink.href = `https://github.com/${pr.repository}/pull/${pr.number}`
     }
     const rows = rowsFor(selectedRunId)
-    const groups = new Map<string, { platformId: string, cells: (string | number | null)[], names: Set<string>, runtimes: Set<string> }>()
-    const groupCounts = new Map<string, number>()
-    for (const platform of data.platforms.filter(platform => selectedPlatforms.has(platform.id))) {
-      for (const runner of run.runners.filter(runner => runner.platformId === platform.id)) {
-        const measurements = rows.filter(row => row.runnerId === runner.id)
-        if (!measurements.length) continue
-        const cells = [platform.label, runner.cpu.model, runner.cpu.logicalProcessors, runner.cpu.cores, runner.sku, [runner.os.name, runner.os.version, runner.os.architecture].filter(Boolean).join(' '), (runner.memoryBytes / 1024 ** 3).toFixed(1), runner.pool, runner.region]
-        const key = JSON.stringify([platform.id, runner.os.name, runner.os.version, runner.os.architecture, ...cells])
-        const group = groups.get(key)
-        if (group) {
-          group.names.add(runner.name)
-          for (const measurement of measurements) group.runtimes.add(measurement.runtimeId)
-        }
-        else {
-          groups.set(key, {
-            platformId: platform.id,
-            cells,
-            names: new Set([runner.name]),
-            runtimes: new Set(measurements.map(measurement => measurement.runtimeId)),
-          })
-          groupCounts.set(platform.id, (groupCounts.get(platform.id) ?? 0) + 1)
-        }
+    const platformRunners = data.platforms.map(platform => ({
+      platform,
+      runners: run.runners.filter(runner => runner.platformId === platform.id && rows.some(row => row.runnerId === runner.id)),
+    })).filter(entry => entry.runners.length)
+    const configurationKey = (runner: typeof run.runners[number]) =>
+      JSON.stringify([runner.cpu, (runner.memoryBytes / 1024 ** 3).toFixed(1), runner.os, runner.sku, runner.pool, runner.region])
+    const showRuntimeAssignments = platformRunners.some(({ runners }) => new Set(runners.map(configurationKey)).size > 1)
+    element('.methodology .table-scroll').hidden = !showRuntimeAssignments && platformRunners.length > 0
+    element('#runner-runtime-heading').hidden = !showRuntimeAssignments
+    const showRunnerPlatform = selectedPlatforms.size > 1
+    element('#runner-platform-heading').hidden = !showRunnerPlatform
+    const columnCount = 2 + Number(showRuntimeAssignments) + Number(showRunnerPlatform)
+    const renderRunner = (platform: Dataset['platforms'][number], runners: typeof run.runners, runtimeId?: string) => {
+      const runner = runners[0]!
+      return `<tr class="runner-runtime-row" data-runner-runtime="${escapeHtml(runtimeId ?? '')}" data-runner-platform="${escapeHtml(platform.id)}">${runtimeId ? `<td title="${escapeHtml(runtimeId)}"><span class="table-runtime">${runtimeMarker(runtimeId, color(runtimeId))}${escapeHtml(shortRuntimeName(runtimeId))}</span></td>` : ''}${showRunnerPlatform ? `<td>${escapeHtml(platform.label)}</td>` : ''}<td style="background:${cpuColors.get(runner.cpu.model ?? '') ?? 'transparent'}">${escapeHtml(runner.cpu.model || 'Unknown CPU')}</td><td style="background:${skuColors.get(runner.sku ?? '') ?? 'transparent'}">${escapeHtml(runner.sku ?? '-')}</td></tr>`
+    }
+    element('#runner-details').innerHTML = (showRuntimeAssignments ? runtimeGroups.map(family => {
+      const assignments = family.runtimes.map(runtime => platformRunners.map(({ platform, runners }) => {
+        const runnerIds = new Set(rows.filter(row => row.runtimeId === runtime.id && row.platformId === platform.id).map(row => row.runnerId))
+        return runners.filter(runner => runnerIds.has(runner.id)).map(runner => renderRunner(platform, [runner], runtime.id)).join('')
+      }).join('')).join('')
+      return assignments ? `<tr class="runner-family-row"><th colspan="${columnCount}">${escapeHtml(family.label)}</th></tr>${assignments}` : ''
+    }).join('') : platformRunners.map(({ platform, runners }) => renderRunner(platform, runners)).join(''))
+      || `<tr><td colspan="${columnCount}" class="empty-table">No measurements selected.</td></tr>`
+    const configurations = new Map<string, { runner: typeof run.runners[number], platforms: Set<string> }>()
+    for (const { platform, runners } of platformRunners) {
+      for (const runner of runners) {
+        const key = configurationKey(runner)
+        const configuration = configurations.get(key)
+        if (configuration) configuration.platforms.add(platform.label)
+        else configurations.set(key, { runner, platforms: new Set([platform.label]) })
       }
     }
-    const showRuntimeAssignments = [...groupCounts.values()].some(count => count > 1)
-    element('#runner-expand-heading').hidden = !showRuntimeAssignments
-    element('#runner-details').innerHTML = groups.size ? [...groups.values()].map((group, index) => {
-      const cells = [...group.cells, group.names.size]
-      const expandable = (groupCounts.get(group.platformId) ?? 0) > 1
-      const detailId = `runner-assignments-${index}`
-      const label = escapeHtml(`Runtimes for ${group.cells[0]}, ${group.cells[1] || 'Unknown CPU'}`)
-      const toggle = expandable ? `<button type="button" class="icon-button runner-toggle" aria-expanded="false" aria-controls="${detailId}" aria-label="${label}" title="${label}"><i data-lucide="chevron-right"></i></button>` : ''
-      const assignments = expandable ? `<tr id="${detailId}" class="runner-assignments" hidden><td colspan="11"><div class="runner-assignment-content"><strong>Runtimes (${group.runtimes.size})</strong><ul>${[...group.runtimes].sort().map(runtime => `<li>${escapeHtml(runtime)}</li>`).join('')}</ul></div></td></tr>` : ''
-      return `<tr>${showRuntimeAssignments ? `<td class="runner-expand-cell">${toggle}</td>` : ''}${cells.map(value => `<td>${escapeHtml(String(value ?? '-'))}</td>`).join('')}</tr>${assignments}`
-    }).join('') : '<tr><td colspan="10" class="empty-table">No measurements selected.</td></tr>'
-    element('#runner-details').querySelectorAll<HTMLButtonElement>('.runner-toggle').forEach(button => {
-      button.addEventListener('click', () => {
-        const expanded = button.getAttribute('aria-expanded') !== 'true'
-        button.setAttribute('aria-expanded', String(expanded))
-        element(`#${button.getAttribute('aria-controls')}`).hidden = !expanded
-      })
-    })
-    createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
-    element('#value-heading').textContent = `${metric().label} (${metric().unit})`
+    element('#runner-configurations').innerHTML = [...configurations.values()].map(({ runner, platforms }, index) => {
+      const specs = [
+        ...(showRunnerPlatform ? [['Platform', [...platforms].join(', ')]] : []),
+        ['vCPUs', runner.cpu.logicalProcessors], ['Cores', runner.cpu.cores],
+        ['Memory (GiB)', (runner.memoryBytes / 1024 ** 3).toFixed(1)],
+        ['Operating system', [runner.os.name, runner.os.version, runner.os.architecture].filter(Boolean).join(' ')],
+        ['Runner pool', runner.pool], ['Region', runner.region],
+      ]
+      return `<section class="runner-configuration" aria-labelledby="runner-configuration-${index}"><h3 id="runner-configuration-${index}"><span style="background:${cpuColors.get(runner.cpu.model ?? '') ?? 'transparent'}">${escapeHtml(runner.cpu.model || 'Unknown CPU')}</span><span style="background:${skuColors.get(runner.sku ?? '') ?? 'transparent'}">${escapeHtml(runner.sku ?? '-')}</span></h3><dl>${specs.map(([name, value]) => `<div><dt>${name}</dt><dd>${escapeHtml(String(value ?? '-'))}</dd></div>`).join('')}</dl></section>`
+    }).join('')
+    const currentMetric = metric()
+    const snapshotPlatforms = data.platforms.filter(platform => selectedPlatforms.has(platform.id))
+    const sort = snapshotSort && (snapshotSort.platformId === '*' || selectedPlatforms.has(snapshotSort.platformId as PlatformId)) ? snapshotSort : undefined
+    const ascending = sort ? (currentMetric.direction === 'lower') === sort.bestFirst : currentMetric.direction === 'lower'
+    const sortHeader = (platformId: string, label: string) => {
+      const active = sort?.platformId === platformId
+      const direction = active ? ascending ? 'ascending' : 'descending' : 'none'
+      return `<th scope="col" aria-sort="${direction}"><button type="button" class="snapshot-sort" data-snapshot-sort="${escapeHtml(platformId)}" aria-label="Sort by ${escapeHtml(label)}" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)}<i data-lucide="${active ? ascending ? 'arrow-up' : 'arrow-down' : 'arrow-up-down'}"></i></button></th>`
+    }
+    const valueHeading = element('#value-heading')
+    valueHeading.innerHTML = `<button type="button" class="snapshot-sort" data-snapshot-sort="*" aria-label="Sort by ${escapeHtml(currentMetric.label)}">${escapeHtml(currentMetric.label)} (${escapeHtml(currentMetric.unit)})<i data-lucide="${ascending ? 'arrow-up' : 'arrow-down'}"></i></button>`
+    valueHeading.setAttribute('aria-sort', ascending ? 'ascending' : 'descending')
+    element('#snapshot-ranked').hidden = snapshotMode !== 'ranked'
+    element('#snapshot-grouped').hidden = snapshotMode !== 'grouped'
+    element('.snapshot-controls').querySelectorAll<HTMLButtonElement>('[data-snapshot-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.snapshotMode === snapshotMode)))
+    const showSnapshotPlatform = selectedPlatforms.size > 1
+    element('#snapshot-platform-heading').hidden = !showSnapshotPlatform
     const maximum = Math.max(...rows.map(entry => entry.values[metricId]), 0)
-    element('#results-body').innerHTML = rows.length ? rows.map((entry, index) => {
+    const rankedRows = sort?.platformId === '*' && !sort.bestFirst ? [...rows].reverse() : rows
+    element('#results-body').innerHTML = rows.length ? rankedRows.map(entry => {
       const percentage = maximum > 0 ? entry.values[metricId] / maximum * 100 : 0
-      return `<tr><td class="rank">${String(index + 1).padStart(2, '0')}</td><td><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}${entry.runtimeId}</span></td><td><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td><td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
-    }).join('') : '<tr><td colspan="5" class="empty-table">No measurements selected.</td></tr>'
+      const family = runtimeGroups.find(group => group.runtimes.some(runtime => runtime.id === entry.runtimeId))!.label
+      return `<tr><td class="rank">${String(rows.indexOf(entry) + 1).padStart(2, '0')}</td><td title="${escapeHtml(entry.runtimeId)}"><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}<span class="snapshot-runtime"><strong>${escapeHtml(family)}</strong><span>${escapeHtml(shortRuntimeName(entry.runtimeId))}</span></span></span></td>${showSnapshotPlatform ? `<td><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td>` : ''}<td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
+    }).join('') : `<tr><td colspan="${showSnapshotPlatform ? 5 : 4}" class="empty-table">No measurements selected.</td></tr>`
+    const snapshotValue = (runtimeId: string, platformId: string) => rows.find(row => row.runtimeId === runtimeId && row.platformId === platformId)?.values[metricId]
+    element('#snapshot-grouped').innerHTML = `<table><thead><tr><th scope="col">Variant</th>${snapshotPlatforms.map(platform => sortHeader(platform.id, `${showSnapshotPlatform ? platform.label : currentMetric.label} (${currentMetric.unit})`)).join('')}</tr></thead><tbody>${runtimeGroups.map(group => {
+      const runtimes = group.runtimes.filter(runtime => rows.some(row => row.runtimeId === runtime.id))
+      const sortPlatform = sort?.platformId ?? (snapshotPlatforms.length === 1 ? snapshotPlatforms[0]!.id : undefined)
+      if (sortPlatform) runtimes.sort((first, second) => {
+        const firstValue = snapshotValue(first.id, sortPlatform)
+        const secondValue = snapshotValue(second.id, sortPlatform)
+        if (firstValue == null) return secondValue == null ? 0 : 1
+        if (secondValue == null) return -1
+        return ascending ? firstValue - secondValue : secondValue - firstValue
+      })
+      if (!runtimes.length) return ''
+      return `<tr class="snapshot-family"><th scope="rowgroup" colspan="${1 + snapshotPlatforms.length}">${escapeHtml(group.label)}</th></tr>${runtimes.map(runtime => `<tr data-snapshot-runtime="${escapeHtml(runtime.id)}"><td title="${escapeHtml(runtime.id)}"><span class="table-runtime">${runtimeMarker(runtime.id, color(runtime.id))}${escapeHtml(shortRuntimeName(runtime.id))}</span></td>${snapshotPlatforms.map(platform => {
+        const value = snapshotValue(runtime.id, platform.id)
+        return `<td class="number" data-snapshot-platform="${escapeHtml(platform.id)}">${value == null ? '<span aria-label="No measurement">-</span>' : format(value)}</td>`
+      }).join('')}</tr>`).join('')}`
+    }).join('') || `<tr><td colspan="${1 + snapshotPlatforms.length}" class="empty-table">No measurements selected.</td></tr>`}</tbody></table>`
+    createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
     saveView()
   }
 
@@ -256,6 +303,7 @@ function renderDashboard(data: Dataset) {
     element('#chart-period').textContent = `${runs[0]!.date.slice(0, 10)} / ${runs.at(-1)!.date.slice(0, 10)}`
     const series = data.runtimes.filter(runtime => selectedRuntimes.has(runtime.id)).flatMap(runtime => data.platforms.filter(platform => selectedPlatforms.has(platform.id)).map(platform => ({
       runtimeId: runtime.id,
+      platformId: platform.id,
       label: `${runtime.id}${selectedPlatforms.size > 1 ? ` / ${platform.label}` : ''}`,
       shortLabel: `${shortRuntimeName(runtime.id)}${selectedPlatforms.size > 1 ? ` / ${platform.label}` : ''}`,
       data: runs.map(run => data.measurements.find(entry => entry.runId === run.id && entry.runtimeId === runtime.id && entry.platformId === platform.id && entry.strategy === strategy)?.values[metricId] ?? null),
@@ -304,13 +352,44 @@ function renderDashboard(data: Dataset) {
                   return `<div title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}${ranked ? `<span class="tooltip-family">${escapeHtml(family)}</span>` : ''}<span class="tooltip-variant">${escapeHtml(entry.shortLabel)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`
                 }
                 popup.querySelector<HTMLElement>('.tooltip-values')!.dataset.mode = tooltipMode
+                const comparisonPlatforms = data.platforms.filter(platform => selectedPlatforms.has(platform.id))
+                const sort = comparisonPlatforms.some(platform => platform.id === comparisonSort?.platformId) ? comparisonSort : undefined
+                const ascending = sort ? (currentMetric.direction === 'lower') === sort.bestFirst : false
+                const comparisonValue = (runtimeId: string, platformId: string) => dataPoints.find(point => {
+                  const entry = series[point.datasetIndex]!
+                  return entry.runtimeId === runtimeId && entry.platformId === platformId
+                })?.parsed.y
+                const renderComparison = () => `<section class="tooltip-comparison" role="table" aria-label="Platform comparison (${escapeHtml(currentMetric.unit)})" style="--platform-count:${comparisonPlatforms.length}"><div class="tooltip-comparison-header" role="row"><span role="columnheader">Variant (${escapeHtml(currentMetric.unit)})</span>${comparisonPlatforms.map(platform => {
+                  const active = sort?.platformId === platform.id
+                  const direction = active ? ascending ? 'ascending' : 'descending' : 'none'
+                  return `<span role="columnheader" aria-sort="${direction}"><button type="button" data-tooltip-sort="${escapeHtml(platform.id)}" title="Sort by ${escapeHtml(platform.label)}" aria-label="Sort by ${escapeHtml(platform.label)}">${escapeHtml(platform.label)}<i data-lucide="${active ? ascending ? 'arrow-up' : 'arrow-down' : 'arrow-up-down'}"></i></button></span>`
+                }).join('')}</div>${groupedSeries.map(group => {
+                  const runtimes = group.runtimes.filter(runtime => dataPoints.some(point => series[point.datasetIndex]!.runtimeId === runtime.id))
+                  if (sort) runtimes.sort((first, second) => {
+                    const firstValue = comparisonValue(first.id, sort.platformId)
+                    const secondValue = comparisonValue(second.id, sort.platformId)
+                    if (firstValue == null) return secondValue == null ? 0 : 1
+                    if (secondValue == null) return -1
+                    return ascending ? firstValue - secondValue : secondValue - firstValue
+                  })
+                  if (!runtimes.length) return ''
+                  return `<div class="tooltip-comparison-group" role="rowgroup" aria-label="${escapeHtml(group.label)}"><h4>${escapeHtml(group.label)}</h4>${runtimes.map(runtime => `<div class="tooltip-comparison-row" role="row"><span role="cell" class="tooltip-comparison-variant" title="${escapeHtml(runtime.id)}">${runtimeMarker(runtime.id, color(runtime.id))}<span>${escapeHtml(shortRuntimeName(runtime.id))}</span></span>${comparisonPlatforms.map(platform => {
+                    const point = dataPoints.find(point => {
+                      const entry = series[point.datasetIndex]!
+                      return entry.runtimeId === runtime.id && entry.platformId === platform.id
+                    })
+                    return `<b role="cell">${point ? format(point.parsed.y!) : '<span aria-label="No measurement">-</span>'}</b>`
+                  }).join('')}</div>`).join('')}</div>`
+                }).join('')}</section>`
                 popup.querySelector('.tooltip-values')!.innerHTML = tooltipMode === 'ranked'
                   ? dataPoints.map(point => renderPoint(point, true)).join('')
+                  : comparisonPlatforms.length > 1 ? renderComparison()
                   : groupedSeries.map(group => {
                     const points = dataPoints.filter(point => group.entries.includes(series[point.datasetIndex]!))
                     return points.length ? `<h4>${escapeHtml(group.label)}</h4>${points.map(point => renderPoint(point, false)).join('')}` : ''
                   }).join('')
                 popup.querySelectorAll<HTMLButtonElement>('[data-tooltip-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.tooltipMode === tooltipMode)))
+                createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
               }
               popup.innerHTML = `<strong>${escapeHtml(tooltip.title.join(' '))}</strong><div class="tooltip-modes" role="group" aria-label="Tooltip ordering"><button type="button" data-tooltip-mode="ranked">Ranked</button><button type="button" data-tooltip-mode="grouped">Grouped</button></div><div class="tooltip-values"></div><p>${escapeHtml(tooltip.footer.join(' '))}</p>`
               renderTooltipContents()
@@ -337,6 +416,26 @@ function renderDashboard(data: Dataset) {
     updateSnapshot()
   }
 
+  element('.snapshot-section').addEventListener('click', event => {
+    const button = (event.target as Element).closest<HTMLButtonElement>('[data-snapshot-mode], [data-snapshot-sort]')
+    if (!button) return
+    const platformId = button.dataset.snapshotSort
+    const keyboardFocus = button.matches(':focus-visible')
+    if (platformId) {
+      snapshotSort = snapshotSort?.platformId !== platformId
+        ? { platformId, bestFirst: true }
+        : snapshotSort.bestFirst ? { platformId, bestFirst: false } : undefined
+    } else {
+      snapshotMode = button.dataset.snapshotMode!
+      snapshotSort = undefined
+    }
+    updateSnapshot()
+    if (keyboardFocus && platformId) {
+      element('.snapshot-section').querySelectorAll<HTMLButtonElement>('[data-snapshot-sort]').forEach(control => {
+        if (control.dataset.snapshotSort === platformId) control.focus({ preventScroll: true })
+      })
+    }
+  })
   element('#runtime-list').addEventListener('change', event => {
     const input = event.target as HTMLInputElement
     input.checked ? selectedRuntimes.add(input.value) : selectedRuntimes.delete(input.value)
@@ -346,6 +445,24 @@ function renderDashboard(data: Dataset) {
     if (!element('#chart-tooltip').matches(':has(:focus-visible)')) element('#chart-tooltip').hidden = true
   })
   element('#chart-tooltip').addEventListener('click', event => {
+    const sortButton = (event.target as Element).closest<HTMLButtonElement>('[data-tooltip-sort]')
+    if (sortButton) {
+      const platformId = sortButton.dataset.tooltipSort!
+      const keyboardFocus = sortButton.matches(':focus-visible')
+      const values = element('.tooltip-values')
+      const scrollTop = values.scrollTop
+      comparisonSort = comparisonSort?.platformId !== platformId
+        ? { platformId, bestFirst: true }
+        : comparisonSort.bestFirst ? { platformId, bestFirst: false } : undefined
+      renderTooltipContents()
+      if (keyboardFocus) {
+        element('#chart-tooltip').querySelectorAll<HTMLButtonElement>('[data-tooltip-sort]').forEach(button => {
+          if (button.dataset.tooltipSort === platformId) button.focus({ preventScroll: true })
+        })
+      }
+      values.scrollTop = scrollTop
+      return
+    }
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tooltip-mode]')
     if (!button) return
     tooltipMode = button.dataset.tooltipMode!
