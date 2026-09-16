@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "id": "35128572795",
+    "attempt": 3
+  },
+  "pullRequest": {
+    "repository": "hyperlight-dev/hyperlight-bench",
+    "number": 13,
+    "head": "a21f2de82a32e8214e2dca99cc3228c55daae5c0",
+    "base": "e54964e52b012308a58e229631899ba52655a38c"
+  },
+  "merge": {
+    "sha": "73ab07d1187b2bcd933f4884323f87741a0424d5",
+    "tree": "cb5768f21e95e298c428e540e6023c5d8e480d5f",
+    "mergedAt": "2026-09-16T18:59:25Z",
+    "message": "Group benchmark strategies and simplify runner specifications (#13)\n\nRun three strategies sequentially per runtime and platform. Share setup\nacross 36 measurement jobs and retain all 108 measurements.\n\nDefault the dashboard to MSHV and group matching runner specifications.\nKeep raw runner metadata in result bundles.\n\nSigned-off-by: Ludvig Liljenberg <4257730+ludfjig@users.noreply.github.com>"
+  }
+}
