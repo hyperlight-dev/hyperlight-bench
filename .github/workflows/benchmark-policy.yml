@@ -3,7 +3,7 @@ name: Benchmark Policy
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review, converted_to_draft, closed]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
 
 permissions:
   contents: read
@@ -11,13 +11,16 @@ permissions:
   issues: read
 
 concurrency:
-  group: benchmark-policy-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  group: >-
+    benchmark-policy-${{ github.event.pull_request.number }}-${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'benchmarks: skip' || github.event.action == 'edited' && !github.event.changes.base) && github.run_id || 'current' }}
+  cancel-in-progress: true
 
 jobs:
   policy:
-    name: Benchmark Policy
-    if: ${{ github.event.action != 'closed' }}
+    name: >-
+      ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'benchmarks: skip' || github.event.action == 'edited' && !github.event.changes.base) && 'Ignored policy event' || 'Benchmark Policy' }}
+    if: >-
+      ${{ (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || github.event.label.name == 'benchmarks: skip') && (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -8,19 +8,25 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  statuses: write
+  contents: read
   actions: read
   pull-requests: read
   issues: read
 
-concurrency:
-  group: benchmark-data-publication
-  cancel-in-progress: false
-
 jobs:
   publish:
-    if: github.event_name == 'push' || github.event.workflow_run.event == 'pull_request'
+    if: github.event_name == 'push' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success')
+    outputs:
+      changed: ${{ steps.publish.outputs.changed }}
+    concurrency:
+      group: benchmark-data-publication
+      queue: max
+    permissions:
+      contents: write
+      statuses: write
+      actions: read
+      pull-requests: read
+      issues: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,6 +41,21 @@ jobs:
       - run: gh auth setup-git
         env:
           GH_TOKEN: ${{ github.token }}
-      - run: node scripts/publish-ci.ts
+      - id: publish
+        run: node scripts/publish-ci.ts
         env:
           GH_TOKEN: ${{ github.token }}
+
+  pages:
+    needs: publish
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.publish.outputs.changed == 'true') }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      issues: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      publication: true

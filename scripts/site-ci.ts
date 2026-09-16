@@ -96,7 +96,7 @@ async function verify(desired: SiteState) {
 }
 
 if (mode === 'verify') {
-  await verify(readJson('site-state.json') as SiteState)
+  await verify(readJson(process.argv[3] ?? 'site-state.json') as SiteState)
 } else {
   const { prs, snapshot } = await inputs()
   const desired = { ...snapshot, previews: await discover(prs) }
