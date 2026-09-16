@@ -458,11 +458,16 @@ test('Pages verifies previews with revision and build jobs and excludes draft an
 test('CI archival and promotion with simulated GitHub and Git', async context => {
   const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-ci-publication-'))
   const previousDirectory = process.cwd()
+  const previousOutput = process.env.GITHUB_OUTPUT
+  const outputPath = resolve(temporary, 'output')
+  process.env.GITHUB_OUTPUT = outputPath
   process.chdir(temporary)
   context.after(() => {
     context.mock.restoreAll()
     syncBuiltinESMExports()
     process.chdir(previousDirectory)
+    if (previousOutput === undefined) delete process.env.GITHUB_OUTPUT
+    else process.env.GITHUB_OUTPUT = previousOutput
     rmSync(temporary, { recursive: true, force: true })
   })
   process.env.GITHUB_REPOSITORY = repository
@@ -544,12 +549,14 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   const { main } = await import('./publish-ci.ts')
   const clearStore = () => {
     rmSync(resolve(temporary, 'data-store'), { recursive: true, force: true })
+    rmSync(outputPath, { force: true })
     pushes = 0
     downloads = 0
   }
   await context.test('archive retains pending data without indexing it', async () => {
     await main()
     assert.equal(pushes, 1)
+    assert.equal(readFileSync(outputPath, 'utf8'), 'changed=true\n')
     assert.equal(downloads, 1)
     assert.deepEqual(readJson(resolve(temporary, 'data-store/index.json')), { schemaVersion: 1, runs: [] })
     assert.ok(existsSync(resolve(temporary, 'data-store/policies/12345/1.json')))
@@ -636,6 +643,7 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     await main()
     assert.equal(downloads, 0)
     assert.equal(pushes, 0)
+    assert.equal(existsSync(outputPath), false)
     pr.labels = []
   })
   await context.test('cache-warming completions do not archive results', async () => {

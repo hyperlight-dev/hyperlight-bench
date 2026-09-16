@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicationPolicy } from '../shared/catalog.ts'
@@ -37,6 +37,7 @@ function pushStore() {
   if (!execute('git', ['diff', '--cached', '--name-only'], directory)) return
   execute('git', ['commit', '-m', 'Record validated benchmark results'], directory)
   execute('git', ['push', 'origin', 'HEAD:refs/heads/data'], directory)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'changed=true\n')
 }
 
 async function verifiedRun(runId: number, attempt: number) {

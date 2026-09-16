@@ -1,11 +1,17 @@
 name: Pages
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      publication:
+        type: boolean
+        default: false
   workflow_run:
-    workflows: [PR Preview, Benchmark Publication, Benchmark Policy]
+    workflows: [PR Preview]
     types: [completed]
+  pull_request_target:
+    types: [synchronize, converted_to_draft, closed, labeled, unlabeled, edited]
 
 permissions:
   contents: read
@@ -15,10 +21,17 @@ permissions:
 
 concurrency:
   group: pages-deployment
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   assemble:
+    if: >-
+      inputs.publication || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' ||
+      github.event_name == 'pull_request_target' && github.event.pull_request.user.login != 'dependabot[bot]' &&
+      (github.event.action != 'closed' || !github.event.pull_request.merged) &&
+      (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || github.event.label.name == 'benchmarks: skip') &&
+      (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -75,7 +88,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: site-state
-      - run: node scripts/site-ci.ts verify
+          path: ${{ runner.temp }}/site-state
+      - run: node scripts/site-ci.ts verify "$RUNNER_TEMP/site-state/site-state.json"
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Deploy current site

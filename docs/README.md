@@ -90,15 +90,19 @@ flowchart TB
 * Benchmark and preview workflow YAML must match `main` before publishers accept their artifacts.
 * Merge requires `Benchmark Policy`, `Benchmark Status`, an up-to-date branch, and squash merging. Required PR review count is zero. Preview and publication success do not block merge.
 
-Pages deploys a data snapshot. It refreshes on pushes to `main` and completion
-of preview, policy, or publication workflows. Closing a PR removes its preview
-on the next deployment. A direct push to `data` requires a Pages rerun.
+Publication calls Pages after a main push or a data change. Pages also runs for
+successful preview builds and preview eligibility changes. Run Pages manually
+after a direct push to `data`.
+
+Publication and Pages use serial queues with up to 100 pending jobs or runs each.
+Benchmark checks ignore unrelated labels and title or body edits.
 
 ## Security
 
 * Outside contributors require **Approve and run**. Collaborators run automatically. Allowing preview execution also permits serving its JavaScript to visitors.
 * PR jobs use read-only repository permissions. The separate `workflow_run` publishers execute `main` code with their own tokens.
-* Benchmark Publication uses `contents: write` and `statuses: write`. It commits to `data` as `github-actions[bot]`. These permissions are repository-wide, so publisher code restricts writes.
+* Benchmark Publication uses `contents: write` and `statuses: write`. It commits to `data` as `github-actions[bot]` and restricts write paths in code.
+* Pages handles PR metadata with `pull_request_target` and executes only `main` code.
 * Pages uses `pages: write` and `id-token: write`. Configure Pages for GitHub Actions and restrict the `github-pages` environment to `main`.
 * Publishers validate PR artifacts as untrusted input. They do not execute artifact scripts or restore PR caches. Workflow matching cannot prove measurements are genuine.
 * PRs can change workflows and check scripts. Inspect those changes before allowing execution or merging. Self-hosted runners must be disposable and isolated from credentials and sensitive networks.

@@ -13,7 +13,8 @@ permissions:
   issues: read
 
 concurrency:
-  group: benchmark-${{ github.event.pull_request.number || github.ref }}
+  group: >-
+    benchmark-${{ github.event.pull_request.number || github.ref }}-${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'benchmarks: skip' || github.event.action == 'edited' && !github.event.changes.base) && github.run_id || 'current' }}
   cancel-in-progress: true
 
 env:
@@ -21,7 +22,8 @@ env:
 
 jobs:
   eligibility:
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' && (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || github.event.label.name == 'benchmarks: skip') && (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -249,8 +251,8 @@ jobs:
 
   # Provide one required check that also reports failed, skipped, or cancelled stages.
   benchmark-status:
-    name: Benchmark Status
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    name: ${{ needs.eligibility.result != 'skipped' && 'Benchmark Status' || 'Ignored benchmark event' }}
+    if: ${{ always() && github.event_name == 'pull_request' && needs.eligibility.result != 'skipped' }}
     needs: [eligibility, configure, producer, prepare, measure, collect]
     runs-on: ubuntu-latest
     timeout-minutes: 5
