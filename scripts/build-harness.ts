@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -78,6 +78,9 @@ if (['dummy', 'inputs', 'all'].includes(phase)) {
 
 if (['servers', 'all'].includes(phase)) {
   const executable = 'http-bench'
+  if (!existsSync('target/hyperlight-js-runtime/x86_64-hyperlight-none/release/hyperlight-js-runtime')) {
+    run('cargo', ['clean', '-p', 'hyperlight-js', '--release'])
+  }
   for (const serverFlavor of flavor === 'all' ? ['native', 'pulley'] : [flavor]) {
     const features = [serverFlavor === 'pulley' ? 'pulley' : '', phase === 'servers' ? process.argv[4] ?? '' : ''].filter(Boolean).join(',')
     run('cargo', ['clean', '-p', 'hyperlight-wasm', '--release'])

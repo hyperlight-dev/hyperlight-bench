@@ -40,7 +40,7 @@ summaries are not loaded by this interface.
 ### Local End To End
 
 Requires Linux x86_64, Node.js 24+, Rust, just, and read/write access to
-`/dev/kvm` or `/dev/mshv`. Install wasm-tools 1.243.0,
+`/dev/kvm` or `/dev/mshv`. Install wasm-tools 1.259.0 or newer,
 hyperlight-wasm-aot 0.15.0, cargo-hyperlight 0.1.14,
 componentize-qjs-cli 0.3.0 with `--no-default-features`, and oha 1.9.0.
 Use `cargo install <crate>@<version> --locked` for each tool.
@@ -74,6 +74,8 @@ not performance stability. The bundle records the request count and load setting
 JIT-heavy configurations can still take several minutes across the full matrix.
 
 Timed runs accept `--duration` and `--client-timeout` in seconds.
+The default client timeout is unlimited. Requests still in flight are cancelled
+when the load duration ends. `--client-timeout` enables a per-request limit.
 `--concurrency` sets the connection count. For slower local hosts, use:
 
 ```sh
@@ -272,7 +274,13 @@ complete benchmark run for the current candidate.
 
 `Benchmark Publication` runs trusted `main` scripts on hosted runners. Successful
 PR attempts are checked against GitHub workflow and commit metadata. All jobs
-must succeed in one attempt. Use **Re-run all jobs** for publishable retries.
+must have a successful latest result through the selected attempt. Use
+**Re-run failed jobs** to retain successful configurations, or rerun an individual
+job and its dependents. Each retry replaces its configuration's result artifact.
+Collection combines the artifacts from that workflow run.
+A failed retry blocks publication even if an earlier
+attempt succeeded. Source revisions and benchmark definitions must match.
+Use **Re-run all jobs** when required artifacts have expired.
 The executed Benchmark workflow must match the trusted workflow. A workflow
 change can require archival recovery after maintainer review and merge.
 

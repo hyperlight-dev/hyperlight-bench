@@ -13,9 +13,58 @@ import { readJson, writeJson, withStoreLock } from './result-store.ts'
 import { assembleSite } from './assemble-site.ts'
 import { loadHistory } from '../src/data.ts'
 import { promoteRun, storeRun } from './publish-results.ts'
+import { mergeBundles } from './merge-results.ts'
 
 const repository = 'example/benchmarks'
 const root = resolve(import.meta.dirname, '..')
+
+test('partial retries retain successful measurements from the same source revision', () => {
+  const bundle = fixture()
+  const shards = bundle.measurements.map(measurement => {
+    const runner = structuredClone(bundle.runners.find(entry => entry.id === measurement.runnerId)!)
+    runner.id = measurement.id
+    return { ...structuredClone(bundle), runners: [runner], measurements: [{ ...structuredClone(measurement), runnerId: runner.id }] }
+  })
+  const retry = structuredClone(shards[0]!)
+  retry.run.attempt = 2
+  retry.run.workflow.url = `https://github.com/${repository}/actions/runs/${retry.run.id}/attempts/2`
+  retry.runners[0]!.name = 'retry-runner'
+  const measurement = shards[0]!.measurements[0]!
+  shards[0]!.measurements = [{ id: measurement.id, runnerId: measurement.runnerId, runtimeId: measurement.runtimeId, strategy: measurement.strategy, status: 'failed', reason: 'Transient failure', rawOutputs: [] }]
+  const retained = shards.slice(1)
+  const merged = mergeBundles([retry, ...retained], 2, bundle.run.id)
+  assert.equal(merged.run.attempt, 2)
+  assert.equal(merged.run.workflow.url, retry.run.workflow.url)
+  assert.equal(merged.measurements.length, 108)
+  assert.deepEqual(merged.measurements[0], retry.measurements[0])
+  assert.deepEqual(merged.measurements[1], shards[1]!.measurements[0])
+  assert.equal(merged.runners.find(runner => runner.id === retry.runners[0]!.id)!.name, 'retry-runner')
+  assert.throws(() => mergeBundles([retry, ...retained, structuredClone(retry)], 2), /Duplicate/)
+  assert.equal(mergeBundles([retry, ...retained], 3).run.attempt, 3)
+
+  const failedRetry = structuredClone(retry)
+  failedRetry.measurements = structuredClone(shards[0]!.measurements)
+  assert.throws(() => mergeBundles([failedRetry, ...retained], 2), /Missing successful configurations|Only successful/)
+  assert.throws(() => mergeBundles(shards, 2), /Missing successful configurations|Only successful/)
+  assert.throws(() => mergeBundles([...shards.slice(1, -1), retry], 2), /Missing successful configurations/)
+  assert.throws(() => mergeBundles([...shards, retry], 2), /Duplicate/)
+  assert.throws(() => mergeBundles([retry, ...retained], 1), /exceeds collection attempt/)
+  assert.throws(() => mergeBundles([retry, ...retained], 2, 'another-run'), /Run identity differs/)
+  for (const mutate of [
+    (input: typeof retry) => { input.run.id = 'another-run' },
+    (input: typeof retry) => { input.run.commit.sha = 'f'.repeat(40) },
+    (input: typeof retry) => { input.run.commit.tree = 'f'.repeat(40) },
+    (input: typeof retry) => { input.run.pullRequest!.base = 'f'.repeat(40) },
+    (input: typeof retry) => { input.benchmark.settings.concurrency = 1 },
+  ]) {
+    const invalid = structuredClone(retry)
+    mutate(invalid)
+    assert.throws(() => mergeBundles([...retained, invalid], 2), /Shard definitions differ/)
+  }
+  const invalidUrl = structuredClone(retry)
+  invalidUrl.run.workflow.url = bundle.run.workflow.url
+  assert.throws(() => mergeBundles([...retained, invalidUrl], 2), /Shard workflow URL differs/)
+})
 
 test('local history loads measured results but cannot be published', async context => {
   const bundle = fixture()
@@ -327,13 +376,14 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     ...Array.from({ length: 2 }, (_, index) => `prepare (${index})`),
     ...Array.from({ length: 108 }, (_, index) => `measure (${index})`),
   ].map(name => ({ name, conclusion: 'success' }))
+  let retryJobs: typeof jobs = []
   context.mock.method(globalThis, 'fetch', async (url: string) => {
     const parsed = new URL(url)
     const path = parsed.pathname.replace(`/repos/${repository}/`, '')
     if (path.endsWith('/jobs')) {
       const page = Number(parsed.searchParams.get('page'))
-      const response = structuredClone(jobs)
-      if (failedJob) response[0]!.conclusion = 'failure'
+      const response = structuredClone(path.includes('/attempts/2/') ? retryJobs : jobs)
+      if (failedJob && !path.includes('/attempts/2/')) response[0]!.conclusion = 'failure'
       return Response.json({ jobs: response.slice((page - 1) * 100, page * 100), total_count: response.length })
     }
     const responses: Record<string, unknown> = {
@@ -344,6 +394,7 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       'issues/7/events': [{ event: 'labeled', label: { name: 'benchmarks: skip' }, actor: { login: 'maintainer' } }],
       'collaborators/maintainer/permission': { permission: 'write' },
       'actions/runs/12345/attempts/1': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
+      'actions/runs/12345/attempts/2': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
       'contents/.github/workflows/benchmark.yml': { encoding: 'base64', content: Buffer.from(workflow).toString('base64') },
       [`git/commits/${bundle.run.commit.sha}`]: { tree: { sha: bundle.run.commit.tree }, parents: [{ sha: bundle.run.pullRequest!.base }, { sha: bundle.run.pullRequest!.head }] },
       [`git/commits/${pr.merge_commit_sha}`]: { tree: { sha: mergedTree } },
@@ -423,6 +474,36 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     failedJob = false
     assert.equal(downloads, 0)
     assert.equal(pushes, 0)
+  })
+  await context.test('partial retry archives and promotes retained successful jobs', async () => {
+    clearStore()
+    const originalUrl = bundle.run.workflow.url
+    bundle.run.attempt = 2
+    bundle.run.workflow.url = `https://github.com/${repository}/actions/runs/12345/attempts/2`
+    retryJobs = jobs.filter(job => ['eligibility', 'measure (0)', 'collect', 'Benchmark Status'].includes(job.name))
+    failedJob = true
+    writeJson(eventPath, { workflow_run: { ...notification.workflow_run, run_attempt: 2 } }, false)
+    try {
+      await main()
+      assert.equal(downloads, 1)
+      assert.equal(pushes, 2)
+      assert.deepEqual(readJson(resolve(temporary, 'data-store/index.json')), { schemaVersion: 1, runs: [{ id: '12345', attempt: 2 }] })
+      const stored = validateCompleteRun(readJson(resolve(temporary, 'data-store/runs/12345/2.json')))
+      assert.deepEqual(stored.measurements, bundle.measurements)
+      retryJobs = retryJobs.map(job => ({ ...job, conclusion: job.name === 'measure (0)' ? 'failure' : 'success' }))
+      await assert.rejects(main(), /successful measure/)
+      assert.equal(downloads, 1, 'A failed retry must not use an earlier successful job')
+      retryJobs = retryJobs.filter(job => job.name !== 'eligibility')
+      await assert.rejects(main(), /successful eligibility/)
+      assert.equal(downloads, 1)
+    } finally {
+      bundle.run.attempt = 1
+      bundle.run.workflow.url = originalUrl
+      retryJobs = []
+      failedJob = false
+      writeJson(eventPath, notification, false)
+      clearStore()
+    }
   })
   await context.test('label changes prevent archival and promotion', async () => {
     pr.labels = [{ name: 'benchmarks: skip' }]
