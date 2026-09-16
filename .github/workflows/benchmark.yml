@@ -170,7 +170,7 @@ jobs:
         if: steps.setup-rust.outputs.CACHE_HIT != 'true'
         run: node scripts/build-harness.ts servers
 
-  # Build from the platform cache and run one runtime/strategy combination.
+  # Share setup across the three strategies for each runtime and platform.
   measure:
     needs: [configure, prepare]
     if: github.event_name == 'pull_request'
@@ -208,11 +208,16 @@ jobs:
         with:
           name: run-identity
           path: artifacts/
-      - run: node scripts/benchmark.ts --platform ${{ matrix.platform }} --runtime ${{ matrix.runtime }} --strategy ${{ matrix.strategy }}
+      - name: Measure reload
+        run: node scripts/benchmark.ts --platform ${{ matrix.platform }} --runtime ${{ matrix.runtime }} --strategy reload
+      - name: Measure reuse
+        run: node scripts/benchmark.ts --platform ${{ matrix.platform }} --runtime ${{ matrix.runtime }} --strategy reuse
+      - name: Measure new
+        run: node scripts/benchmark.ts --platform ${{ matrix.platform }} --runtime ${{ matrix.runtime }} --strategy new
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: result-${{ matrix.platform }}-${{ matrix.runtime }}-${{ matrix.strategy }}
+          name: result-${{ matrix.platform }}-${{ matrix.runtime }}
           overwrite: true
           path: results/
           if-no-files-found: error

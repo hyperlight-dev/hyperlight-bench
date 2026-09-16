@@ -85,6 +85,7 @@ flowchart TB
 ## CI Rules
 
 * `benchmarks: skip` skips measurement and result publication. Dependabot applies it automatically.
+* Each of the 36 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies.
 * Preview builds run independently of benchmarks. Draft and Dependabot PRs have no preview.
 * Production uses published history. Previews include matching pending results when available.
 * Benchmark and preview workflow YAML must match `main` before publishers accept their artifacts.

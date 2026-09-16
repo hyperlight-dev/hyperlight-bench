@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { test } from 'node:test'
-import { publicationPolicy } from '../shared/catalog.ts'
+import { publicationPolicy, strategies } from '../shared/catalog.ts'
 import { groupHistories, historyRunPath, parseHistoryRun, runKey, validateCompleteRun, validateHistory, validatePublishableRun } from '../shared/results.ts'
 import { createMockBundles } from '../src/mock-data.ts'
 import { readJson, writeJson, withStoreLock } from './result-store.ts'
@@ -37,7 +37,12 @@ test('main pushes configure cache warming without a measurement identity', async
   const outputs = Object.fromEntries([...readFileSync(outputPath, 'utf8').matchAll(/^(\w+)=(.+)$/gm)]
     .map(match => [match[1], JSON.parse(match[2]!)]))
   assert.deepEqual(outputs.platforms.include.map((entry: { platform: string }) => entry.platform), ['kvm', 'mshv3'])
-  assert.equal(outputs.configurations.include.length, 108)
+  assert.equal(outputs.configurations.include.length, 36)
+  const configurations = outputs.configurations.include.flatMap((entry: { platform: string, runtime: string }) =>
+    strategies.map(strategy => `${entry.platform}-${entry.runtime}-${strategy}`))
+  assert.equal(new Set(configurations).size, 108)
+  assert.deepEqual(configurations.sort(), publicationPolicy.benchmark.expectedConfigurations
+    .map(entry => `${entry.platformId}-${entry.runtimeId}-${entry.strategy}`).sort())
   assert.equal(existsSync(resolve(temporary, 'artifacts')), false)
   for (const event of [{ ref: 'refs/heads/feature' }, { ref: 'refs/heads/main', deleted: true }]) {
     writeJson(eventPath, event, false)
@@ -496,7 +501,7 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   let downloads = 0
   const jobs = ['eligibility', 'configure', 'producer', 'collect', 'Benchmark Status',
     ...Array.from({ length: 2 }, (_, index) => `prepare (${index})`),
-    ...Array.from({ length: 108 }, (_, index) => `measure (${index})`),
+    ...Array.from({ length: 36 }, (_, index) => `measure (${index})`),
   ].map(name => ({ name, conclusion: 'success' }))
   let retryJobs: typeof jobs = []
   const statuses: any[] = []
