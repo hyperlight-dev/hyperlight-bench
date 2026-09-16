@@ -4,6 +4,7 @@
 @media(max-width:720px){.methodology th:last-child{display:table-cell}}
 .site-heading{margin:0;font-size:14px;font-weight:500;line-height:1.2}.site-title{font-size:14px;font-weight:500}.site-header .repository-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 16px}.site-header{gap:16px;height:58px}
 .dashboard-main{padding-top:0}.dashboard-main>.workspace{border-top:0}
+.methodology .runner-expand-cell{width:42px;padding:4px}.runner-toggle[aria-expanded=true] svg{transform:rotate(90deg)}.methodology .runner-assignments td{white-space:normal;background:#edf3ee;padding:14px 16px}.runner-assignment-content strong{font-size:12px;font-weight:500}.runner-assignment-content ul{display:flex;flex-wrap:wrap;gap:8px 24px;list-style:none;margin:10px 0 0;padding:0}.runner-assignment-content li{font:11px 'IBM Plex Mono',monospace;overflow-wrap:anywhere;min-width:0}
 .preview-status{padding:12px 0;color:var(--green);font-size:13px;overflow-wrap:anywhere;border-bottom:1px solid var(--border)}
 .eyebrow,.count,.control-label,legend,.lifecycle-control p,.platform-options small,.metrics button:not([aria-selected=true]),.chart-heading p,.chart-caption,.chart-legend,.snapshot-heading p,th,.rank,.platform-badge,.methodology,footer{color:var(--muted)}
 input[type=search]::placeholder{color:var(--muted);opacity:1}
