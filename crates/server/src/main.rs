@@ -336,7 +336,8 @@ enum Runtime {
     HyperlightDummy,
     #[value(name = "hyperlight-wasm-jco")]
     HyperlightWASMJco,
-    HyperlightWASMPulley,
+    #[value(name = "hyperlight-wasm-pulley-jco")]
+    HyperlightWASMPulleyJco,
     HyperlightWASMPulleyQjs,
     HyperlightWASMPulleyDummy,
     HyperlightWASMQjs,
@@ -379,7 +380,7 @@ impl Runtime {
             Self::HyperlightWASMJco => hyperlight_wasm(JCO_AOT, JCO_MEMORY),
             Self::HyperlightWASMQjs => hyperlight_wasm(QJS_AOT, QJS_MEMORY),
             Self::HyperlightWASMDummy => hyperlight_wasm(RUST_AOT, RUST_MEMORY),
-            Self::HyperlightWASMPulley => hyperlight_wasm(JCO_PULLEY, JCO_PULLEY_MEMORY),
+            Self::HyperlightWASMPulleyJco => hyperlight_wasm(JCO_PULLEY, JCO_PULLEY_MEMORY),
             Self::HyperlightWASMPulleyQjs => hyperlight_wasm(QJS_PULLEY, QJS_MEMORY),
             Self::HyperlightWASMPulleyDummy => hyperlight_wasm(RUST_PULLEY, RUST_MEMORY),
             Self::HyperlightJS => {
@@ -451,7 +452,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pool_size = args.pool_size;
     let sandbox_mode = args.strategy;
     let runtime = args.runtime;
-    let is_pulley = matches!(runtime, Runtime::HyperlightWASMPulley | Runtime::HyperlightWASMPulleyQjs | Runtime::HyperlightWASMPulleyDummy);
+    let is_pulley = matches!(runtime, Runtime::HyperlightWASMPulleyJco | Runtime::HyperlightWASMPulleyQjs | Runtime::HyperlightWASMPulleyDummy);
     let is_native_wasm = matches!(runtime, Runtime::HyperlightWASMJco | Runtime::HyperlightWASMQjs | Runtime::HyperlightWASMDummy);
     if (is_pulley && !cfg!(feature = "pulley")) || (is_native_wasm && cfg!(feature = "pulley")) {
         return Err("Hyperlight Wasm runtime does not match this binary's pulley feature".into());

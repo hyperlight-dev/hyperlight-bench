@@ -5,7 +5,7 @@ const definitions = [
   { id: 'hyperlight-dummy', engine: 'Native', description: 'Minimal native Hyperlight guest.' },
   { id: 'hyperlight-js', engine: 'QuickJS', description: 'Native QuickJS inside Hyperlight.' },
   { id: 'hyperlight-wasm-jco', engine: 'StarlingMonkey', description: 'jco component, native AOT, inside Hyperlight.' },
-  { id: 'hyperlight-wasm-pulley', engine: 'StarlingMonkey', description: 'jco component, Pulley interpreter, inside Hyperlight.' },
+  { id: 'hyperlight-wasm-pulley-jco', engine: 'StarlingMonkey', description: 'jco component, Pulley interpreter, inside Hyperlight.' },
   { id: 'hyperlight-wasm-qjs', engine: 'QuickJS', description: 'QuickJS component, native AOT, inside Hyperlight.' },
   { id: 'hyperlight-wasm-dummy', engine: 'Rust', description: 'Rust Wasm component, native AOT, inside Hyperlight.' },
   { id: 'wasmtime-jco', engine: 'StarlingMonkey', description: 'jco component compiled at context creation.' },
