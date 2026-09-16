@@ -58,6 +58,12 @@ function renderDashboard(data: Dataset) {
   const selectedPlatforms = new Set<PlatformId>((params.has('platforms') ? params.get('platforms')!.split(',') : [defaultPlatform]).filter(id => data.platforms.some(platform => platform.id === id)) as PlatformId[])
   let selectedRunId = data.runs.find(run => run.id === params.get('run'))?.id ?? data.runs.at(-1)?.id ?? ''
   let chart: Chart<'line'> | undefined
+  let tooltipMode = 'ranked'
+  try {
+    if (localStorage.getItem('benchmark-tooltip-mode') === 'grouped') tooltipMode = 'grouped'
+  } catch {}
+  let renderTooltipContents = () => {}
+  let tooltipHideTimer: ReturnType<typeof setTimeout> | undefined
   const runtimeGroups = [
     { label: 'Hyperlight JS', shape: 'circle', runtimes: data.runtimes.filter(runtime => runtime.id === 'hyperlight-js') },
     { label: 'Hyperlight Wasm', shape: 'square', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hyperlight-wasm-') && !runtime.id.endsWith('-dummy')) },
@@ -67,6 +73,13 @@ function renderDashboard(data: Dataset) {
   const runtimeMarker = (runtimeId: string, markerColor: string) => {
     const shape = runtimeGroups.find(group => group.runtimes.some(runtime => runtime.id === runtimeId))?.shape ?? 'square'
     return `<span class="runtime-swatch" data-shape="${shape}" style="background:${markerColor}" aria-hidden="true"></span>`
+  }
+  const shortRuntimeName = (runtimeId: string) => {
+    if (runtimeId === 'hyperlight-js') return 'JavaScript'
+    const name = runtimeId === 'dummy' ? 'native' : runtimeId.endsWith('-dummy')
+      ? runtimeId.slice(0, -6) : runtimeId.replace(/^(hyperlight-wasm|wasmtime)-/, '')
+    const words: Record<string, string> = { native: 'Native', hyperlight: 'Hyperlight', wasm: 'Wasm', wasmtime: 'Wasmtime', aot: 'AOT', jco: 'JCO', qjs: 'QuickJS', pulley: 'Pulley' }
+    return name.split('-').map(word => words[word] ?? word).join(' ')
   }
 
   app.innerHTML = `
@@ -244,6 +257,7 @@ function renderDashboard(data: Dataset) {
     const series = data.runtimes.filter(runtime => selectedRuntimes.has(runtime.id)).flatMap(runtime => data.platforms.filter(platform => selectedPlatforms.has(platform.id)).map(platform => ({
       runtimeId: runtime.id,
       label: `${runtime.id}${selectedPlatforms.size > 1 ? ` / ${platform.label}` : ''}`,
+      shortLabel: `${shortRuntimeName(runtime.id)}${selectedPlatforms.size > 1 ? ` / ${platform.label}` : ''}`,
       data: runs.map(run => data.measurements.find(entry => entry.runId === run.id && entry.runtimeId === runtime.id && entry.platformId === platform.id && entry.strategy === strategy)?.values[metricId] ?? null),
       borderColor: color(runtime.id), backgroundColor: color(runtime.id), borderWidth: 2,
       borderDash: platform.id === 'kvm' ? [6, 4] : [],
@@ -251,7 +265,11 @@ function renderDashboard(data: Dataset) {
     })))
     element('#series-count').textContent = `${series.length} series`
     element('#empty-chart').hidden = series.length > 0
-    element('#chart-legend').innerHTML = series.map(entry => `<span><span class="legend-line" style="border-color:${entry.borderColor};border-style:${entry.borderDash.length ? 'dashed' : 'solid'}"></span>${escapeHtml(entry.label)}</span>`).join('')
+    const groupedSeries = runtimeGroups.map(group => ({
+      ...group,
+      entries: series.filter(entry => group.runtimes.some(runtime => runtime.id === entry.runtimeId)),
+    })).filter(group => group.entries.length)
+    element('#chart-legend').innerHTML = groupedSeries.map(group => `<section class="legend-group"><h3>${escapeHtml(group.label)}</h3><div>${group.entries.map(entry => `<span title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}<span class="legend-line" style="border-color:${entry.borderColor};border-style:${entry.borderDash.length ? 'dashed' : 'solid'}"></span>${escapeHtml(entry.shortLabel)}</span>`).join('')}</div></section>`).join('')
     element('#chart-tooltip').hidden = true
     chart?.destroy()
     chart = new Chart(element<HTMLCanvasElement>('#chart'), {
@@ -270,11 +288,31 @@ function renderDashboard(data: Dataset) {
             enabled: false,
             external: ({ chart: currentChart, tooltip }) => {
               const popup = element('#chart-tooltip')
+              clearTimeout(tooltipHideTimer)
               if (!tooltip.opacity) {
-                if (!popup.matches(':hover')) popup.hidden = true
+                tooltipHideTimer = setTimeout(() => {
+                  if (!popup.matches(':hover, :has(:focus-visible)')) popup.hidden = true
+                }, 200)
                 return
               }
-              popup.innerHTML = `<strong>${escapeHtml(tooltip.title.join(' '))}</strong><div class="tooltip-values">${tooltip.dataPoints.map(point => `<div>${runtimeMarker(series[point.datasetIndex]!.runtimeId, color(series[point.datasetIndex]!.runtimeId))}<span>${escapeHtml(point.dataset.label!)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`).join('')}</div><p>${escapeHtml(tooltip.footer.join(' '))}</p>`
+              if (!popup.hidden && popup.matches(':hover, :has(:focus-visible)')) return
+              const dataPoints = [...tooltip.dataPoints]
+              renderTooltipContents = () => {
+                const renderPoint = (point: typeof dataPoints[number], ranked: boolean) => {
+                  const entry = series[point.datasetIndex]!
+                  const family = groupedSeries.find(group => group.entries.includes(entry))!.label
+                  return `<div title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}<span>${ranked ? `<span class="tooltip-family">${escapeHtml(family)}</span> ` : ''}${escapeHtml(entry.shortLabel)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`
+                }
+                popup.querySelector('.tooltip-values')!.innerHTML = tooltipMode === 'ranked'
+                  ? dataPoints.map(point => renderPoint(point, true)).join('')
+                  : groupedSeries.map(group => {
+                    const points = dataPoints.filter(point => group.entries.includes(series[point.datasetIndex]!))
+                    return points.length ? `<h4>${escapeHtml(group.label)}</h4>${points.map(point => renderPoint(point, false)).join('')}` : ''
+                  }).join('')
+                popup.querySelectorAll<HTMLButtonElement>('[data-tooltip-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.tooltipMode === tooltipMode)))
+              }
+              popup.innerHTML = `<strong>${escapeHtml(tooltip.title.join(' '))}</strong><div class="tooltip-modes" role="group" aria-label="Tooltip ordering"><button type="button" data-tooltip-mode="ranked">Ranked</button><button type="button" data-tooltip-mode="grouped">Grouped</button></div><div class="tooltip-values"></div><p>${escapeHtml(tooltip.footer.join(' '))}</p>`
+              renderTooltipContents()
               popup.hidden = false
               popup.style.left = `${Math.max(0, Math.min(tooltip.caretX + 12, currentChart.width - popup.offsetWidth))}px`
               popup.style.top = `${Math.max(0, Math.min(tooltip.caretY, currentChart.height - popup.offsetHeight))}px`
@@ -303,7 +341,24 @@ function renderDashboard(data: Dataset) {
     input.checked ? selectedRuntimes.add(input.value) : selectedRuntimes.delete(input.value)
     update()
   })
-  element('.chart-wrap').addEventListener('pointerleave', () => element('#chart-tooltip').hidden = true)
+  element('.chart-wrap').addEventListener('pointerleave', () => {
+    if (!element('#chart-tooltip').matches(':has(:focus-visible)')) element('#chart-tooltip').hidden = true
+  })
+  element('#chart-tooltip').addEventListener('click', event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tooltip-mode]')
+    if (!button) return
+    tooltipMode = button.dataset.tooltipMode!
+    try {
+      localStorage.setItem('benchmark-tooltip-mode', tooltipMode)
+    } catch {}
+    renderTooltipContents()
+  })
+  element('#chart-tooltip').addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      element('#chart-tooltip').querySelector<HTMLElement>(':focus')?.blur()
+      element('#chart-tooltip').hidden = true
+    }
+  })
   element<HTMLInputElement>('#runtime-search').addEventListener('input', event => {
     const query = (event.target as HTMLInputElement).value.toLowerCase()
     let visible = 0
