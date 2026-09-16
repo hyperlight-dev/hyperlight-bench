@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "id": "35032063246",
+    "attempt": 2
+  },
+  "pullRequest": {
+    "repository": "hyperlight-dev/hyperlight-bench",
+    "number": 2,
+    "head": "e6d27d02874a693f7ca8eecf4b8ff84c5f3f43f4",
+    "base": "35bb62238ba2ddb80343ab48f6cbc0ad16c4834a"
+  },
+  "merge": {
+    "sha": "6471c3306434e7f702423e91475545abb3f54e99",
+    "tree": "500a9944588b6dce223bb994bd48873d87ce28fc",
+    "mergedAt": "2026-09-16T00:50:13Z"
+  }
+}
