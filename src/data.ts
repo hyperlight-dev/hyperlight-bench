@@ -37,6 +37,36 @@ export interface Dataset {
   historyId?: string
 }
 
+function datasetFromHistories(histories: RunBundle[][]): Dataset {
+  const datasets = histories.map(datasetFromBundles)
+  if (datasets.length === 1) return datasets[0]!
+
+  const bundles = histories.flat().sort((first, second) => first.run.createdAt.localeCompare(second.run.createdAt) || runKey(first).localeCompare(runKey(second)))
+  const runtimes = new Map<string, Runtime>()
+  const platforms = new Map<string, Platform>()
+  const metrics = new Map<string, Metric>()
+  for (const bundle of bundles) {
+    for (const runtime of bundle.catalog.runtimes) runtimes.set(runtime.id, runtime)
+    for (const platform of bundle.catalog.platforms) platforms.set(platform.id, platform)
+    for (const metric of bundle.catalog.metrics) {
+      const previous = metrics.get(metric.id)
+      if (previous && (previous.unit !== metric.unit || previous.direction !== metric.direction)) {
+        throw new Error(`Benchmark versions use incompatible definitions for metric ${metric.id}`)
+      }
+      metrics.set(metric.id, metric)
+    }
+  }
+  return {
+    schemaVersion: 1,
+    source: datasets[0]!.source,
+    runtimes: [...runtimes.values()],
+    platforms: [...platforms.values()],
+    metrics: [...metrics.values()],
+    runs: datasets.flatMap(dataset => dataset.runs).sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id)),
+    measurements: datasets.flatMap(dataset => dataset.measurements),
+  }
+}
+
 export async function loadDataset(): Promise<Dataset | null> {
   if (new URLSearchParams(location.search).get('demo') === '1') {
     const { createMockBundles } = await import('./mock-data')
@@ -44,10 +74,10 @@ export async function loadDataset(): Promise<Dataset | null> {
   }
   const indexUrl = new URL(import.meta.env.VITE_HISTORY_URL || 'https://raw.githubusercontent.com/hyperlight-dev/hyperlight-bench/data/index.json', location.href)
   const params = new URLSearchParams(location.search)
-  return loadHistory(indexUrl, params.get('history') ?? params.get('run') ?? undefined)
+  return loadHistory(indexUrl, params.get('history') ?? undefined, params.get('run') ?? undefined)
 }
 
-export async function loadHistory(indexUrl: URL, selectedHistory?: string): Promise<Dataset | null> {
+export async function loadHistory(indexUrl: URL, selectedHistory?: string, selectedRun?: string): Promise<Dataset | null> {
   async function readJson(url: URL): Promise<unknown> {
     const response = await fetch(url, { cache: 'no-cache', signal: AbortSignal.timeout(30000) })
     if (!response.ok) throw new Error(`Unable to load ${url}: HTTP ${response.status}`)
@@ -74,8 +104,17 @@ export async function loadHistory(indexUrl: URL, selectedHistory?: string): Prom
   const groups = groupHistories(bundles)
   const containing = (key: string | undefined) => groups.find(group => group.some(bundle => runKey(bundle) === key))
   const pending = index.preview?.pending
-  const selected = containing(selectedHistory) ?? containing(pending ? `${pending.id}.${pending.attempt}` : undefined) ?? groups[0]!
-  const dataset = datasetFromBundles(selected)
+  const requestedVersions = selectedHistory?.split(',')
+  if (requestedVersions?.some(version => !version) || requestedVersions && new Set(requestedVersions).size !== requestedVersions.length) {
+    throw new Error(`Invalid benchmark version selection: ${selectedHistory}`)
+  }
+  const requested = requestedVersions?.map(version => {
+    const group = groups.find(candidate => String(candidate[0]!.benchmark.version) === version)
+    if (!group) throw new Error(`Benchmark version not found: ${version}`)
+    return group
+  })
+  const selected = requested ?? [containing(selectedRun) ?? containing(pending ? `${pending.id}.${pending.attempt}` : undefined) ?? groups[0]!]
+  const dataset = datasetFromHistories(selected)
   for (const run of dataset.runs) {
     const display = index.runs.find(entry => `${entry.id}.${entry.attempt}` === run.id)?.displayCommit
     if (display) {
@@ -87,13 +126,13 @@ export async function loadHistory(indexUrl: URL, selectedHistory?: string): Prom
   return {
     ...dataset,
     preview: index.preview,
-    historyId: runKey(selected[0]!),
+    historyId: selected.map(group => group[0]!.benchmark.version).join(','),
     histories: groups.map((group, index) => {
       const latest = group.at(-1)!
       const settings = latest.benchmark.settings
       const load = settings.requestCount ? `${settings.requestCount} request` : `${settings.durationSeconds}s`
       return {
-        id: runKey(group[0]!),
+        id: String(group[0]!.benchmark.version),
         label: `${latest.benchmark.id} v${latest.benchmark.version} / ${load} / ${settings.concurrency} connections / ${latest.run.createdAt.slice(0, 10)} / ${index + 1}`,
       }
     }),

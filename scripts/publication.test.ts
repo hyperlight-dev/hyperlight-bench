@@ -211,9 +211,10 @@ test('benchmark definition changes retain selectable histories and pending previ
     next.run.createdAt = `2026-09-0${number + 1}T00:00:00Z`
     next.run.pullRequest!.number = 7 + number
     next.run.workflow.url = `https://github.com/${repository}/actions/runs/${next.run.id}/attempts/1`
-    if (change === 'version') next.benchmark.version++
     if (change === 'settings') next.benchmark.settings.durationSeconds = 120
     if (change === 'metric') next.catalog.metrics[0]!.methodVersion++
+    if (change !== 'version') assert.throws(() => groupHistories([...bundles, next]), /Bump the benchmark version/)
+    next.benchmark.version++
     const policy = { ...publicationPolicy, catalog: next.catalog, benchmark: next.benchmark }
     assert.throws(() => validateHistory([first, next]))
     storeRun(store, next, policy)
@@ -229,7 +230,7 @@ test('benchmark definition changes retain selectable histories and pending previ
   reordered.run.id = 'reordered'
   reordered.catalog.metrics.reverse()
   reordered.catalog.runtimes.reverse()
-  assert.equal(groupHistories([first, reordered]).length, 1)
+  assert.deepEqual(groupHistories([first, reordered]), [[first, reordered]])
   assert.throws(() => groupHistories([first, first]), /Duplicate run/)
   assert.throws(() => groupHistories([first, { ...reordered, source: 'local' }]), /sources differ/)
 
@@ -251,21 +252,31 @@ test('benchmark definition changes retain selectable histories and pending previ
   const url = new URL('https://fixture.test/data/index.json')
   const latest = await loadHistory(url)
   assert.equal(latest!.histories!.length, 4)
+  assert.equal(latest!.historyId, String(bundles.at(-1)!.benchmark.version))
   assert.deepEqual(latest!.runs.map(run => run.id), [runKey(bundles.at(-1)!)])
   assert.equal(latest!.runs[0]!.message, 'Improve benchmarks (#10)')
   assert.equal(latest!.runs[0]!.commit, 'ccccccc')
   assert.equal(latest!.runs[0]!.commitUrl, `https://github.com/${repository}/commit/${'c'.repeat(40)}`)
   assert.deepEqual(latest!.runs[0]!.bundle, bundles.at(-1))
-  const older = await loadHistory(url, runKey(first))
+  const older = await loadHistory(url, String(first.benchmark.version))
+  assert.equal(older!.historyId, String(first.benchmark.version))
   assert.deepEqual(older!.runs.map(run => run.id), [runKey(first)])
   assert.equal(older!.runs[0]!.message, 'Benchmark results (#7)')
-  assert.equal((await loadHistory(url, 'missing'))!.historyId, latest!.historyId)
+  const compared = await loadHistory(url, `${first.benchmark.version},${bundles.at(-1)!.benchmark.version}`)
+  assert.equal(compared!.historyId, `${first.benchmark.version},${bundles.at(-1)!.benchmark.version}`)
+  assert.deepEqual(compared!.runs.map(run => run.id), [runKey(first), runKey(bundles.at(-1)!)])
+  await assert.rejects(loadHistory(url, 'missing'), /Benchmark version not found/)
+  await assert.rejects(loadHistory(url, `${first.benchmark.version},missing`), /Benchmark version not found/)
+  await assert.rejects(loadHistory(url, `${first.benchmark.version},${first.benchmark.version}`), /Invalid benchmark version selection/)
+  assert.deepEqual((await loadHistory(url, undefined, runKey(first)))!.runs.map(run => run.id), [runKey(first)])
+  assert.equal((await loadHistory(url, String(first.benchmark.version), runKey(bundles.at(-1)!)))!.historyId, String(first.benchmark.version))
   const previewUrl = new URL('https://fixture.test/previews/pr-7/data/index.json')
   const preview = await loadHistory(previewUrl)
   assert.equal(preview!.histories!.length, 5)
+  assert.equal(preview!.historyId, '99')
   assert.deepEqual(preview!.runs.map(run => run.id), [runKey(pending)])
   assert.equal(preview!.runs[0]!.commit, pending.run.commit.sha.slice(0, 7))
-  assert.deepEqual((await loadHistory(previewUrl, runKey(first)))!.runs.map(run => run.id), [runKey(first)])
+  assert.deepEqual((await loadHistory(previewUrl, String(first.benchmark.version)))!.runs.map(run => run.id), [runKey(first)])
 })
 
 test('local result storage and promotion', async context => {

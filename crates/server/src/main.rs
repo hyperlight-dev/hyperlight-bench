@@ -12,7 +12,6 @@ use std::time::Duration;
 
 extern crate alloc;
 
-use async_trait::async_trait;
 use clap::Parser;
 use clap::ValueEnum;
 use http_body_util::Full;
@@ -34,6 +33,7 @@ use handlers::Handler;
 
 mod memory_monitor;
 
+const DEFAULT_REQUEST_URI: &str = "/index.html";
 const DEFAULT_REQUEST_BODY: &str = r#"{"uri": "/index.html"}"#;
 
 #[cfg(feature = "time_phases")]
@@ -52,17 +52,10 @@ struct JobRequest {
     reqnum: usize,
 }
 
-#[async_trait]
-trait SandboxPoolTrait: Send + Sync {
-    /// Send a job to the pool and await the result.
-    async fn execute(&self) -> String;
-}
-
 /// Pool of sandbox worker threads for handling requests.
-struct SandboxPool<H: Handler + Send + Sync + 'static> {
+struct SandboxPool {
     senders: Vec<mpsc::UnboundedSender<JobRequest>>,
     counter: AtomicUsize,
-    _marker: std::marker::PhantomData<H>,
 }
 
 #[derive(Copy, Clone)]
@@ -71,9 +64,9 @@ struct ObserverConfig {
     check_in: Duration,
 }
 
-impl<H: Handler + Send + Sync + 'static> SandboxPool<H> {
+impl SandboxPool {
     /// Worker thread for `New` strategy: creates a new sandbox for each request.
-    fn worker_new(
+    fn worker_new<H: Handler>(
         mut rx: mpsc::UnboundedReceiver<JobRequest>,
         i: usize,
         worker: &H::WorkerState,
@@ -114,7 +107,7 @@ impl<H: Handler + Send + Sync + 'static> SandboxPool<H> {
     }
 
     /// Worker thread for `Reload` strategy: reuses the sandbox, but reloads/unloads for each request.
-    fn worker_reload(
+    fn worker_reload<H: Handler>(
         mut rx: mpsc::UnboundedReceiver<JobRequest>,
         i: usize,
         worker: &H::WorkerState,
@@ -155,7 +148,7 @@ impl<H: Handler + Send + Sync + 'static> SandboxPool<H> {
     }
 
     /// Worker thread for `Reuse` strategy: reuses the same sandbox and handler for all requests.
-    fn worker_reuse(
+    fn worker_reuse<H: Handler>(
         mut rx: mpsc::UnboundedReceiver<JobRequest>,
         i: usize,
         worker: &H::WorkerState,
@@ -195,12 +188,12 @@ impl<H: Handler + Send + Sync + 'static> SandboxPool<H> {
     }
 
     /// Create a new sandbox pool with the given number of workers, mode, and handler.
-    fn start(
+    fn start<H: Handler + Send + Sync + 'static>(
         pool_size: usize,
         mode: SandboxReuseStrategy,
         config: Option<ObserverConfig>,
         handler_config: H::Config,
-    ) -> Arc<dyn SandboxPoolTrait> {
+    ) -> Arc<Self> {
         assert!(pool_size > 0, "Pool size must be positive");
         let mut senders = Vec::with_capacity(pool_size);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -221,9 +214,9 @@ impl<H: Handler + Send + Sync + 'static> SandboxPool<H> {
                     let worker = H::prepare_worker(handler_config, obs);
                     eprintln!("Worker thread {} preparation completed", i);
                     match mode {
-                        SandboxReuseStrategy::New => Self::worker_new(rx, i, &worker, ready),
-                        SandboxReuseStrategy::Reload => Self::worker_reload(rx, i, &worker, ready),
-                        SandboxReuseStrategy::Reuse => Self::worker_reuse(rx, i, &worker, ready),
+                        SandboxReuseStrategy::New => Self::worker_new::<H>(rx, i, &worker, ready),
+                        SandboxReuseStrategy::Reload => Self::worker_reload::<H>(rx, i, &worker, ready),
+                        SandboxReuseStrategy::Reuse => Self::worker_reuse::<H>(rx, i, &worker, ready),
                     }
                 }));
 
@@ -258,13 +251,9 @@ impl<H: Handler + Send + Sync + 'static> SandboxPool<H> {
         Arc::new(Self {
             senders,
             counter: AtomicUsize::new(0),
-            _marker: std::marker::PhantomData,
         })
     }
-}
 
-#[async_trait]
-impl<H: Handler + Send + Sync + 'static> SandboxPoolTrait for SandboxPool<H> {
     /// Send a job to the pool and await the result.
     async fn execute(&self) -> String {
         #[cfg(feature = "time_phases")]
@@ -293,7 +282,7 @@ impl<H: Handler + Send + Sync + 'static> SandboxPoolTrait for SandboxPool<H> {
 
 /// Main HTTP handler: runs the JS handler in a sandbox and returns the response.
 async fn handler(
-    pool: Arc<dyn SandboxPoolTrait>,
+    pool: Arc<SandboxPool>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let res = pool.execute().await;
     // make sure the handler ran
@@ -352,14 +341,14 @@ impl Runtime {
         pool_size: usize,
         strategy: SandboxReuseStrategy,
         observer: Option<ObserverConfig>,
-    ) -> Arc<dyn SandboxPoolTrait> {
+    ) -> Arc<SandboxPool> {
         use handlers::{ComponentSource::*, *};
 
         let wasmtime = |source| {
-            SandboxPool::<WasmtimeHandler>::start(pool_size, strategy, observer, source)
+            SandboxPool::start::<WasmtimeHandler>(pool_size, strategy, observer, source)
         };
         let hyperlight_wasm = |artifact, memory| {
-            SandboxPool::<HyperlightWASMHandler>::start(
+            SandboxPool::start::<HyperlightWASMHandler>(
                 pool_size,
                 strategy,
                 observer,
@@ -384,13 +373,13 @@ impl Runtime {
             Self::HyperlightWASMPulleyQjs => hyperlight_wasm(QJS_PULLEY, QJS_MEMORY),
             Self::HyperlightWASMPulleyDummy => hyperlight_wasm(RUST_PULLEY, RUST_MEMORY),
             Self::HyperlightJS => {
-                SandboxPool::<HyperlightJSHandler>::start(pool_size, strategy, observer, ())
+                SandboxPool::start::<HyperlightJSHandler>(pool_size, strategy, observer, ())
             }
             Self::HyperlightDummy => {
-                SandboxPool::<HyperlightDummyHandler>::start(pool_size, strategy, observer, ())
+                SandboxPool::start::<HyperlightDummyHandler>(pool_size, strategy, observer, ())
             }
             Self::Dummy => {
-                SandboxPool::<DummyHandler>::start(pool_size, strategy, observer, ())
+                SandboxPool::start::<DummyHandler>(pool_size, strategy, observer, ())
             }
         }
     }

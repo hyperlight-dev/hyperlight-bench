@@ -1,5 +1,5 @@
 use super::{Handler, SandboxMemory};
-use crate::SandboxReuseStrategy;
+use crate::{DEFAULT_REQUEST_URI, SandboxReuseStrategy};
 
 use bindings::hyperlight::bench::handler_interface::Request;
 use hyperlight_host::sandbox::snapshot::Snapshot;
@@ -54,11 +54,23 @@ impl bindings::hyperlight::bench::HandlerWorldImports<hyperlight_common::compone
 {
 }
 
+enum WasmState {
+    Unloaded {
+        sandbox: WasmSandbox,
+        resources: Arc<std::sync::Mutex<bindings::HandlerWorldResources<MyState>>>,
+    },
+    Loaded(bindings::HandlerWorldSandbox<MyState, LoadedWasmSandbox>),
+}
+
+enum WasmLifecycle {
+    Renew,
+    Restore(Arc<Snapshot>),
+    Reuse(Arc<Snapshot>),
+}
+
 pub struct HyperlightWASMContext {
-    unloaded: Option<WasmSandbox>,
-    loaded_snapshot: Arc<Snapshot>,
-    wrapped: Option<bindings::HandlerWorldSandbox<MyState, LoadedWasmSandbox>>,
-    rt: Option<std::sync::Arc<std::sync::Mutex<bindings::HandlerWorldResources<MyState>>>>,
+    state: WasmState,
+    lifecycle: WasmLifecycle,
     aot: Arc<PreparedAot>,
     observer: Option<Arc<CpuTimeObserver>>,
 }
@@ -111,61 +123,72 @@ impl Handler for HyperlightWASMHandler {
         let rt = bindings::register_host_functions(&mut sb, state).unwrap();
         let sb = sb.load_runtime().unwrap();
 
-        let mut loaded_sb = unsafe {
-            sb.load_module_by_mapping(worker.aot.base, worker.aot.len).unwrap()
+        let prepare_snapshot = |sandbox: WasmSandbox, lifecycle: fn(Arc<Snapshot>) -> WasmLifecycle| {
+            let mut loaded = unsafe {
+                sandbox.load_module_by_mapping(worker.aot.base, worker.aot.len)
+                    .expect("Failed to load the Wasm module for snapshot preparation")
+            };
+            let snapshot = loaded.snapshot().expect("Failed to snapshot the loaded Wasm module");
+            let sandbox = loaded.unload_module().expect("Failed to unload the Wasm module after snapshot preparation");
+            (sandbox, lifecycle(snapshot))
         };
-        let loaded_snapshot = loaded_sb.snapshot().unwrap();
-        let sb = loaded_sb.unload_module().unwrap();
+        let (sb, lifecycle) = match strategy {
+            SandboxReuseStrategy::New => (sb, WasmLifecycle::Renew),
+            SandboxReuseStrategy::Reload => prepare_snapshot(sb, WasmLifecycle::Restore),
+            SandboxReuseStrategy::Reuse => prepare_snapshot(sb, WasmLifecycle::Reuse),
+        };
 
         HyperlightWASMContext {
-            unloaded: Some(sb),
-            loaded_snapshot,
-            wrapped: None,
-            rt: Some(rt),
+            state: WasmState::Unloaded { sandbox: sb, resources: rt },
+            lifecycle,
             aot: worker.aot.clone(),
             observer: observer,
         }
     }
 
     fn load(mut ctx: Self::Context) -> Self::Context {
-        let wasm_sandbox = ctx.unloaded.take().unwrap();
-        let sb = wasm_sandbox
-            .load_from_snapshot(ctx.loaded_snapshot.clone())
-            .unwrap();
-
-        let wrapped = bindings::HandlerWorldSandbox {
-            sb,
-            rt: ctx.rt.unwrap(),
+        let WasmState::Unloaded { sandbox, resources } = ctx.state else {
+            panic!("Wasm load requires an unloaded sandbox");
+        };
+        let sb = match &ctx.lifecycle {
+            WasmLifecycle::Renew => {
+                // The context retains the AOT mapping for the loaded module's lifetime.
+                unsafe {
+                    sandbox.load_module_by_mapping(ctx.aot.base, ctx.aot.len)
+                        .expect("Failed to load the Wasm module for Renew")
+                }
+            }
+            WasmLifecycle::Restore(snapshot) | WasmLifecycle::Reuse(snapshot) => sandbox
+                .load_from_snapshot(snapshot.clone())
+                .expect("Failed to restore the loaded Wasm module snapshot"),
         };
 
-        HyperlightWASMContext {
-            unloaded: None,
-            wrapped: Some(wrapped),
-            loaded_snapshot: ctx.loaded_snapshot,
-            rt: None,
-            aot: ctx.aot,
-            observer: ctx.observer,
-        }
+        ctx.state = WasmState::Loaded(bindings::HandlerWorldSandbox {
+            sb,
+            rt: resources,
+        });
+        ctx
     }
 
     fn unload(mut ctx: Self::Context) -> Self::Context {
-        let wrapped = ctx.wrapped.take().unwrap();
-        let unloaded = wrapped.sb.unload_module().unwrap();
+        let WasmLifecycle::Restore(_) = &ctx.lifecycle else {
+            panic!("Only Restore may unload a Wasm module");
+        };
+        let WasmState::Loaded(wrapped) = ctx.state else {
+            panic!("Wasm unload requires a loaded module");
+        };
+        let unloaded = wrapped.sb.unload_module().expect("Failed to unload the Wasm module");
 
-        HyperlightWASMContext {
-            unloaded: Some(unloaded),
-            wrapped: None,
-            loaded_snapshot: ctx.loaded_snapshot,
-            rt: Some(wrapped.rt),
-            aot: ctx.aot,
-            observer: ctx.observer,
-        }
+        ctx.state = WasmState::Unloaded { sandbox: unloaded, resources: wrapped.rt };
+        ctx
     }
 
     fn handle_request(ctx: &mut Self::Context) -> String {
         use bindings::hyperlight::bench::HandlerInterface;
 
-        let world_sb = ctx.wrapped.as_ref().unwrap();
+        let WasmState::Loaded(world_sb) = &mut ctx.state else {
+            panic!("Wasm handle_request requires a loaded module");
+        };
         let handle = world_sb.sb.interrupt_handle().unwrap();
 
         if let Some(obs) = &ctx.observer {
@@ -173,11 +196,11 @@ impl Handler for HyperlightWASMHandler {
         }
 
         let handler = bindings::hyperlight::bench::HandlerWorldExports::handler_interface(
-            ctx.wrapped.as_mut().unwrap(),
+            world_sb,
         );
 
         let request = Request {
-            uri: "/default.html".to_string(),
+            uri: DEFAULT_REQUEST_URI.to_string(),
         };
 
         let response = handler.handleevent(request).unwrap();
@@ -187,6 +210,6 @@ impl Handler for HyperlightWASMHandler {
             obs.stop_timeout(&handle);
         }
 
-        format!("{{\"uri\":\"{}\"}}", uri).to_string()
+        format!("{{\"uri\":\"{}\"}}", uri)
     }
 }

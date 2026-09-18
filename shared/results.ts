@@ -276,7 +276,13 @@ export function groupHistories(bundles: RunBundle[]): RunBundle[][] {
     groups.set(definition, group)
   }
   const histories = [...groups.values()].sort((first, second) => second.at(-1)!.run.createdAt.localeCompare(first.at(-1)!.run.createdAt) || runKey(second.at(-1)!).localeCompare(runKey(first.at(-1)!)))
-  for (const history of histories) validateHistory(history)
+  const versions = new Set<number>()
+  for (const history of histories) {
+    const version = history[0]!.benchmark.version
+    if (versions.has(version)) throw new Error(`Incompatible definitions for benchmark version ${version}. Bump the benchmark version.`)
+    versions.add(version)
+    validateHistory(history)
+  }
   return histories
 }
 

@@ -9,9 +9,14 @@ pub struct HyperlightJSHandler;
 pub struct HyperlightJSWorkerState {
     observer: Option<Arc<CpuTimeObserver>>,
 }
+
+enum JSState {
+    Unloaded(hyperlight_js::JSSandbox),
+    Loaded(hyperlight_js::LoadedJSSandbox),
+}
+
 pub struct HyperlightJSContext {
-    sandbox: Option<hyperlight_js::JSSandbox>,
-    loaded_sandbox: Option<hyperlight_js::LoadedJSSandbox>,
+    state: JSState,
     observer: Option<Arc<CpuTimeObserver>>,
 }
 
@@ -36,53 +41,55 @@ impl Handler for HyperlightJSHandler {
     type Context = HyperlightJSContext;
     type WorkerState = HyperlightJSWorkerState;
 
-    fn prepare_worker(_: Self::Config, observer: Option<Arc<CpuTimeObserver>>) -> Self::WorkerState {
+    fn prepare_worker(
+        _: Self::Config,
+        observer: Option<Arc<CpuTimeObserver>>,
+    ) -> Self::WorkerState {
         HyperlightJSWorkerState { observer: observer }
     }
 
-    fn new_context(
-        worker: &Self::WorkerState,
-        _strategy: SandboxReuseStrategy,
-    ) -> Self::Context {
+    fn new_context(worker: &Self::WorkerState, _strategy: SandboxReuseStrategy) -> Self::Context {
         let js = SandboxBuilder::new()
             .build()
             .unwrap()
             .load_runtime()
             .unwrap();
 
-        let observer = worker.observer.clone();
-
         HyperlightJSContext {
-            sandbox: Some(js),
-            loaded_sandbox: None,
-            observer: observer,
+            state: JSState::Unloaded(js),
+            observer: worker.observer.clone(),
         }
     }
 
-    fn load(mut ctx: Self::Context) -> Self::Context {
-        let mut js = ctx.sandbox.take().unwrap();
+    fn load(ctx: Self::Context) -> Self::Context {
+        let JSState::Unloaded(mut js) = ctx.state else {
+            panic!("JS load requires an unloaded sandbox");
+        };
+        // Restore models a different customer's handler on each request, so registration belongs here.
         js.add_handler("handler".to_string(), HANDLER.to_string().into())
             .unwrap();
         let loaded = js.get_loaded_sandbox().unwrap();
         HyperlightJSContext {
-            sandbox: None,
-            loaded_sandbox: Some(loaded),
+            state: JSState::Loaded(loaded),
             observer: ctx.observer,
         }
     }
 
-    fn unload(mut ctx: Self::Context) -> Self::Context {
-        let loaded = ctx.loaded_sandbox.take().unwrap();
+    fn unload(ctx: Self::Context) -> Self::Context {
+        let JSState::Loaded(loaded) = ctx.state else {
+            panic!("JS unload requires a loaded sandbox");
+        };
         let js = loaded.unload().unwrap();
         HyperlightJSContext {
-            sandbox: Some(js),
-            loaded_sandbox: None,
+            state: JSState::Unloaded(js),
             observer: ctx.observer,
         }
     }
 
     fn handle_request(ctx: &mut Self::Context) -> String {
-        let loaded = ctx.loaded_sandbox.as_mut().unwrap();
+        let JSState::Loaded(loaded) = &mut ctx.state else {
+            panic!("JS handle_request requires a loaded sandbox");
+        };
         let interrupt_handle = loaded.interrupt_handle();
 
         if let Some(obs) = &ctx.observer {

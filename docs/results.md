@@ -103,7 +103,7 @@ npm run validate -- --policy policy.json run.json
 ```
 
 The command accepts multiple files and exits with status 1 on validation failure.
-It partitions the supplied bundles into compatible dashboard histories and
+It partitions the supplied bundles by benchmark version and
 validates each group.
 
 ## Dashboard Selection Archives
@@ -187,9 +187,10 @@ It copies the bundle unchanged and marks its pending status in serving metadata.
 
 Production indexes have no preview metadata. The production serving copy contains
 only published bundles. Each preview has its own `data/index.json` and `data/runs/`.
-The dashboard defaults to the pending run's compatible history. Older histories
-remain selectable. The header indicates when pending results belong to another
-history.
+The dashboard defaults to the pending run's benchmark version. Older versions
+are accessible through `?history=<version>`. A comma-separated list, such as
+`?history=2,3`, compares several versions. The header indicates when pending
+results belong to another history.
 
 ## Publication Records
 
@@ -267,19 +268,20 @@ operations or remove PR previews. Approved benchmark-skip PRs do not invoke prom
 
 ## History Compatibility
 
-The index retains every published run. Publication and Pages partition runs by
-workload ID, version, settings, metric definitions, and runtime definitions.
+The index retains every published run. Each benchmark version defines one chart
+history. Changes to the workload ID or settings require a version bump.
 Changes to metric units, directions, method versions, guest engines, execution
-modes, or the set of metrics or runtimes start a separate group. Display labels
+modes, or the set of metrics or runtimes also require a version bump. Display labels
 and catalog ordering do not affect grouping.
 
-The dashboard compares one group at a time. It defaults to the group containing
-the newest run. The Benchmark history selector exposes older groups. Shared
-links identify a group through `history=<run.id>.<run.attempt>` using a member
-run. Downloads contain only the selected group's visible runs.
+The dashboard defaults to the group containing the newest run. Older groups are
+accessible through the `history=<version>` query parameter, for example
+`?history=2`. Comma-separated versions combine their runs for an explicit
+comparison. Shared links preserve the selected groups. Downloads contain only
+the selected groups' visible runs.
 
 Duplicate run identities and mixed local, synthetic, or published sources fail
-validation. Each group retains strict comparison checks. No archived bundles
+validation. Conflicting definitions within a version also fail validation. No archived bundles
 are rewritten when a new group is published.
 
 The snapshot table shows successful results for the selected metric. Runner
