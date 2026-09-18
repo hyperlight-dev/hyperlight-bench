@@ -21,6 +21,19 @@ const strategyDescriptions: Record<Strategy, string> = {
   reuse: 'Keep the sandbox as-is across requests.',
   new: 'Create a new sandbox for each request.',
 }
+const lifecycleDetails = `
+  <details class="lifecycle-details">
+    <summary>Runtime lifecycle details</summary>
+    <div class="table-scroll"><table><thead><tr><th scope="col">Runtime</th><th scope="col">Variant</th><th scope="col">Restore</th><th scope="col">Reuse</th><th scope="col">Renew</th></tr></thead><tbody>
+      <tr><th scope="row">Hyperlight JS</th><td class="lifecycle-variant">QuickJS</td><td>Register the JavaScript handler, call it, then restore to the handler-free runtime snapshot.</td><td>Call the registered handler.</td><td>Create a sandbox, load JavaScript, register and call the handler, then destroy the sandbox.</td></tr>
+      <tr><th scope="row">Hyperlight Wasm</th><td class="lifecycle-variant">JCO, QuickJS, Pulley</td><td>Restore to the loaded-module snapshot, call the component, then unload the module for the next restore.</td><td>Call the loaded component.</td><td>Create a sandbox, load the Wasm runtime, map and call the module, then destroy the sandbox.</td></tr>
+      <tr><th scope="row" rowspan="2">Wasmtime</th><td class="lifecycle-variant">JIT</td><td>Instantiate and call the resident compiled component in a fresh store, then drop the instance and store.</td><td>Call the instantiated component.</td><td>Create an engine and linker, compile, instantiate, and call the component, then drop the context.</td></tr>
+      <tr><td class="lifecycle-variant">AOT, Pulley</td><td>Instantiate and call the resident deserialized component in a fresh store, then drop the instance and store.</td><td>Call the instantiated component.</td><td>Create an engine and linker, deserialize, instantiate, and call the component, then drop the context.</td></tr>
+      <tr><th scope="row" rowspan="3">Dummy</th><td class="lifecycle-variant">Native</td><td>Handle the request in the host process.</td><td>Handle the request in the host process.</td><td>Handle the request in the host process.</td></tr>
+      <tr><td class="lifecycle-variant">Hyperlight</td><td>Call the guest, then restore to the sandbox snapshot.</td><td>Call the guest.</td><td>Create a sandbox, call the guest, then destroy the sandbox.</td></tr>
+      <tr><td class="lifecycle-variant">Wasm variants</td><td colspan="3">Use the matching Hyperlight Wasm or Wasmtime lifecycle above.</td></tr>
+    </tbody></table></div>
+  </details>`
 const app = document.querySelector<HTMLDivElement>('#app')!
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 
@@ -109,14 +122,13 @@ function renderDashboard(data: Dataset) {
       ${data.preview ? `<p class="preview-status" role="status">${escapeHtml(previewLabel(data))}</p>` : ''}
       <div class="workspace">
         <aside class="runtime-panel" aria-label="Runtime filters">
-          ${data.histories && data.histories.length > 1 ? `<label class="search-label" for="history">Benchmark history</label><select id="history" style="width:100%;min-width:0" title="Benchmark history">${data.histories.map(group => `<option value="${group.id}" ${group.id === data.historyId ? 'selected' : ''}>${escapeHtml(group.label)}</option>`).join('')}</select>` : ''}
-          <div class="panel-heading"><h2>Runtimes <span class="count" id="runtime-count"></span></h2><button class="icon-button" id="reset" title="Reset filters" aria-label="Reset filters"><i data-lucide="rotate-ccw"></i></button></div>
+          <div class="panel-heading"><h2>Runtimes <span class="count" id="runtime-count"></span></h2><button class="icon-button" id="reset" aria-label="Reset filters"><i data-lucide="rotate-ccw"></i></button></div>
           <label class="search-label" for="runtime-search">Find runtime</label><input id="runtime-search" type="search" placeholder="Filter runtimes..." autocomplete="off" />
           <div class="selection-actions"><button id="select-all">Select all</button><button id="select-none">Clear</button></div>
           <div id="runtime-list">${runtimeGroups.map(group => `<div class="runtime-group" role="group" aria-label="${group.label}"><h3 class="runtime-group-heading">${group.label}</h3>${group.runtimes.map(runtime => {
             const index = data.runtimes.indexOf(runtime)
             return `
-            <label class="runtime-option" data-runtime="${runtime.id}" title="${escapeHtml(runtime.description)}">
+            <label class="runtime-option" data-runtime="${runtime.id}">
               <input type="checkbox" value="${runtime.id}" ${selectedRuntimes.has(runtime.id) ? 'checked' : ''} style="accent-color:${palette[index % palette.length]}" />
               ${runtimeMarker(runtime.id, palette[index % palette.length]!)}<span class="runtime-text"><span>${runtime.id}</span><small>${escapeHtml(runtime.engine)}</small></span>
             </label>`
@@ -127,13 +139,13 @@ function renderDashboard(data: Dataset) {
           <section class="controls" aria-label="Benchmark configuration">
             <div class="lifecycle-control"><span class="control-label">Per-request lifecycle</span><div class="segments" role="group" aria-label="Sandbox lifecycle">
               <button data-strategy="reload">Restore</button><button data-strategy="reuse">Reuse</button><button data-strategy="new">Renew</button>
-            </div><p id="strategy-description"></p></div>
+            </div><p id="strategy-description"></p>${lifecycleDetails}</div>
             <fieldset class="platform-control"><legend>Platform</legend><div class="platform-options">${data.platforms.map(platform => `<label><input type="checkbox" value="${platform.id}" ${selectedPlatforms.has(platform.id) ? 'checked' : ''} /><span>${escapeHtml(platform.label)}</span><small>Linux</small></label>`).join('')}</div></fieldset>
           </section>
           <div id="hardware-warning" class="hardware-warning" hidden><i data-lucide="alert-triangle"></i><div>Different Azure VM sizes and generations. Results reflect both hardware and software differences.</div></div>
           <div class="metrics" role="tablist" aria-label="Metric">${data.metrics.map(metric => `<button role="tab" data-metric="${metric.id}">${escapeHtml(metric.label)}</button>`).join('')}</div>
           <section class="chart-section" aria-labelledby="chart-title">
-            <div class="chart-heading"><div><h2 id="chart-title"></h2><p><span id="metric-direction"></span><span class="separator">·</span><span id="series-count"></span></p><p>Hover for values. Click to select a commit.</p></div><div class="chart-actions"><label for="range" class="sr-only">History range</label><select id="range"><option value="14">All 14 commits</option><option value="7">Last 7 commits</option></select><button id="download" class="icon-button" aria-label="Download selected results" title="Download selected results"><i data-lucide="download"></i></button><button id="share" class="icon-button" aria-label="Copy view link" title="Copy view link"><i data-lucide="link"></i></button></div></div>
+            <div class="chart-heading"><div><h2 id="chart-title"></h2><p><span id="metric-direction"></span><span class="separator">·</span><span id="series-count"></span></p><p>Hover for values. Click to select a commit.</p></div><div class="chart-actions"><label for="range" class="sr-only">History range</label><select id="range"><option value="14">All 14 commits</option><option value="7">Last 7 commits</option></select><button id="download" class="icon-button" aria-label="Download selected results"><i data-lucide="download"></i></button><button id="share" class="icon-button" aria-label="Copy view link"><i data-lucide="link"></i></button></div></div>
             <div class="chart-wrap"><canvas id="chart" role="img" aria-label="Benchmark history. Values are available in the results table below."></canvas><div id="chart-tooltip" class="chart-tooltip" hidden aria-hidden="true"></div><div id="empty-chart" hidden>Select at least one runtime and platform.</div></div>
             <div class="chart-caption"><span id="chart-period"></span></div>
             <div id="chart-legend" class="chart-legend"></div>
@@ -179,6 +191,8 @@ function renderDashboard(data: Dataset) {
   const rowsFor = (runId: string) => data.measurements.filter(entry => entry.runId === runId && entry.strategy === strategy && selectedRuntimes.has(entry.runtimeId) && selectedPlatforms.has(entry.platformId) && entry.values[metricId] !== undefined)
     .sort((first, second) => metric().direction === 'higher' ? second.values[metricId] - first.values[metricId] : first.values[metricId] - second.values[metricId])
   const format = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: metricId === 'rps' ? 0 : metricId === 'memory' ? 1 : 3 }).format(value)
+  const comparingVersions = data.historyId?.includes(',') ?? false
+  const runLabel = (run: Dataset['runs'][number]) => `${comparingVersions ? `v${run.bundle.benchmark.version} / ` : ''}${run.commit}`
 
   function saveView() {
     const query = new URLSearchParams({ strategy, metric: metricId, platforms: [...selectedPlatforms].join(','), runtimes: [...selectedRuntimes].join(','), range: String(range), run: selectedRunId })
@@ -189,7 +203,7 @@ function renderDashboard(data: Dataset) {
 
   function updateSnapshot() {
     const run = data.runs.find(entry => entry.id === selectedRunId)!
-    element('#snapshot-title').textContent = `${run.commit} / ${new Date(run.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}`
+    element('#snapshot-title').textContent = `${runLabel(run)} / ${new Date(run.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}`
     const pending = data.preview?.pending
     element('#commit-message').textContent = `${pending && run.id === `${pending.id}.${pending.attempt}` ? 'Pending PR result: ' : ''}${run.message}`
     element<HTMLSelectElement>('#run').value = selectedRunId
@@ -217,7 +231,7 @@ function renderDashboard(data: Dataset) {
     const columnCount = 2 + Number(showRuntimeAssignments) + Number(showRunnerPlatform)
     const renderRunner = (platform: Dataset['platforms'][number], runners: typeof run.runners, runtimeId?: string) => {
       const runner = runners[0]!
-      return `<tr class="runner-runtime-row" data-runner-runtime="${escapeHtml(runtimeId ?? '')}" data-runner-platform="${escapeHtml(platform.id)}">${runtimeId ? `<td title="${escapeHtml(runtimeId)}"><span class="table-runtime">${runtimeMarker(runtimeId, color(runtimeId))}${escapeHtml(shortRuntimeName(runtimeId))}</span></td>` : ''}${showRunnerPlatform ? `<td>${escapeHtml(platform.label)}</td>` : ''}<td style="background:${cpuColors.get(runner.cpu.model ?? '') ?? 'transparent'}">${escapeHtml(runner.cpu.model || 'Unknown CPU')}</td><td style="background:${skuColors.get(runner.sku ?? '') ?? 'transparent'}">${escapeHtml(runner.sku ?? '-')}</td></tr>`
+      return `<tr class="runner-runtime-row" data-runner-runtime="${escapeHtml(runtimeId ?? '')}" data-runner-platform="${escapeHtml(platform.id)}">${runtimeId ? `<td><span class="table-runtime">${runtimeMarker(runtimeId, color(runtimeId))}${escapeHtml(shortRuntimeName(runtimeId))}</span></td>` : ''}${showRunnerPlatform ? `<td>${escapeHtml(platform.label)}</td>` : ''}<td style="background:${cpuColors.get(runner.cpu.model ?? '') ?? 'transparent'}">${escapeHtml(runner.cpu.model || 'Unknown CPU')}</td><td style="background:${skuColors.get(runner.sku ?? '') ?? 'transparent'}">${escapeHtml(runner.sku ?? '-')}</td></tr>`
     }
     element('#runner-details').innerHTML = (showRuntimeAssignments ? runtimeGroups.map(family => {
       const assignments = family.runtimes.map(runtime => platformRunners.map(({ platform, runners }) => {
@@ -253,7 +267,7 @@ function renderDashboard(data: Dataset) {
     const sortHeader = (platformId: string, label: string) => {
       const active = sort?.platformId === platformId
       const direction = active ? ascending ? 'ascending' : 'descending' : 'none'
-      return `<th scope="col" aria-sort="${direction}"><button type="button" class="snapshot-sort" data-snapshot-sort="${escapeHtml(platformId)}" aria-label="Sort by ${escapeHtml(label)}" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)}<i data-lucide="${active ? ascending ? 'arrow-up' : 'arrow-down' : 'arrow-up-down'}"></i></button></th>`
+      return `<th scope="col" aria-sort="${direction}"><button type="button" class="snapshot-sort" data-snapshot-sort="${escapeHtml(platformId)}" aria-label="Sort by ${escapeHtml(label)}">${escapeHtml(label)}<i data-lucide="${active ? ascending ? 'arrow-up' : 'arrow-down' : 'arrow-up-down'}"></i></button></th>`
     }
     const valueHeading = element('#value-heading')
     valueHeading.innerHTML = `<button type="button" class="snapshot-sort" data-snapshot-sort="*" aria-label="Sort by ${escapeHtml(currentMetric.label)}">${escapeHtml(currentMetric.label)} (${escapeHtml(currentMetric.unit)})<i data-lucide="${ascending ? 'arrow-up' : 'arrow-down'}"></i></button>`
@@ -268,7 +282,7 @@ function renderDashboard(data: Dataset) {
     element('#results-body').innerHTML = rows.length ? rankedRows.map(entry => {
       const percentage = maximum > 0 ? entry.values[metricId] / maximum * 100 : 0
       const family = runtimeGroups.find(group => group.runtimes.some(runtime => runtime.id === entry.runtimeId))!.label
-      return `<tr><td class="rank">${String(rows.indexOf(entry) + 1).padStart(2, '0')}</td><td title="${escapeHtml(entry.runtimeId)}"><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}<span class="snapshot-runtime"><strong>${escapeHtml(family)}</strong><span>${escapeHtml(shortRuntimeName(entry.runtimeId))}</span></span></span></td>${showSnapshotPlatform ? `<td data-platform="${escapeHtml(entry.platformId)}"><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td>` : ''}<td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
+      return `<tr><td class="rank">${String(rows.indexOf(entry) + 1).padStart(2, '0')}</td><td><span class="table-runtime">${runtimeMarker(entry.runtimeId, color(entry.runtimeId))}<span class="snapshot-runtime"><strong>${escapeHtml(family)}</strong><span>${escapeHtml(shortRuntimeName(entry.runtimeId))}</span></span></span></td>${showSnapshotPlatform ? `<td data-platform="${escapeHtml(entry.platformId)}"><span class="platform-badge">${escapeHtml(data.platforms.find(platform => platform.id === entry.platformId)!.label)}</span></td>` : ''}<td class="number">${format(entry.values[metricId])}</td><td class="bar-cell"><div class="relative-bar"><span class="bar-track" aria-hidden="true"><span class="value-bar" style="width:${percentage}%;background:${color(entry.runtimeId)}"></span></span><span class="bar-percentage">${percentage.toFixed(1)}%</span></div></td></tr>`
     }).join('') : `<tr><td colspan="${showSnapshotPlatform ? 5 : 4}" class="empty-table">No measurements selected.</td></tr>`
     const snapshotValue = (runtimeId: string, platformId: string) => rows.find(row => row.runtimeId === runtimeId && row.platformId === platformId)?.values[metricId]
     element('#snapshot-grouped').innerHTML = `<table><thead><tr><th scope="col">Variant</th>${snapshotPlatforms.map(platform => sortHeader(platform.id, `${showSnapshotPlatform ? platform.label : currentMetric.label} (${currentMetric.unit})`)).join('')}</tr></thead><tbody>${runtimeGroups.map(group => {
@@ -282,7 +296,7 @@ function renderDashboard(data: Dataset) {
         return ascending ? firstValue - secondValue : secondValue - firstValue
       })
       if (!runtimes.length) return ''
-      return `<tr class="snapshot-family"><th scope="rowgroup" colspan="${1 + snapshotPlatforms.length}">${escapeHtml(group.label)}</th></tr>${runtimes.map(runtime => `<tr data-snapshot-runtime="${escapeHtml(runtime.id)}"><td title="${escapeHtml(runtime.id)}"><span class="table-runtime">${runtimeMarker(runtime.id, color(runtime.id))}${escapeHtml(shortRuntimeName(runtime.id))}</span></td>${snapshotPlatforms.map(platform => {
+      return `<tr class="snapshot-family"><th scope="rowgroup" colspan="${1 + snapshotPlatforms.length}">${escapeHtml(group.label)}</th></tr>${runtimes.map(runtime => `<tr data-snapshot-runtime="${escapeHtml(runtime.id)}"><td><span class="table-runtime">${runtimeMarker(runtime.id, color(runtime.id))}${escapeHtml(shortRuntimeName(runtime.id))}</span></td>${snapshotPlatforms.map(platform => {
         const value = snapshotValue(runtime.id, platform.id)
         return `<td class="number" data-snapshot-platform="${escapeHtml(platform.id)}">${value == null ? '<span aria-label="No measurement">-</span>' : format(value)}</td>`
       }).join('')}</tr>`).join('')}`
@@ -308,7 +322,7 @@ function renderDashboard(data: Dataset) {
     element<HTMLOptionElement>('#range option[value="14"]').textContent = `Last ${Math.min(14, data.runs.length)} runs`
     element<HTMLOptionElement>('#range option[value="7"]').textContent = `Last ${Math.min(7, data.runs.length)} runs`
     element<HTMLSelectElement>('#range').value = String(range)
-    element<HTMLSelectElement>('#run').innerHTML = runs.map(run => `<option value="${run.id}">${run.commit}${data.preview?.pending && run.id === `${data.preview.pending.id}.${data.preview.pending.attempt}` ? ' · Pending PR' : ''}${run.id === data.runs.at(-1)!.id ? ' · Latest' : ''}</option>`).join('')
+    element<HTMLSelectElement>('#run').innerHTML = runs.map(run => `<option value="${run.id}">${runLabel(run)}${data.preview?.pending && run.id === `${data.preview.pending.id}.${data.preview.pending.attempt}` ? ' · Pending PR' : ''}${run.id === data.runs.at(-1)!.id ? ' · Latest' : ''}</option>`).join('')
     element('#chart-period').textContent = `${runs[0]!.date.slice(0, 10)} / ${runs.at(-1)!.date.slice(0, 10)}`
     const series = data.runtimes.filter(runtime => selectedRuntimes.has(runtime.id)).flatMap(runtime => data.platforms.filter(platform => selectedPlatforms.has(platform.id)).map(platform => ({
       runtimeId: runtime.id,
@@ -326,11 +340,11 @@ function renderDashboard(data: Dataset) {
       ...group,
       entries: group.runtimes.flatMap(runtime => series.filter(entry => runtime.id === entry.runtimeId)),
     })).filter(group => group.entries.length)
-    element('#chart-legend').innerHTML = groupedSeries.map(group => `<section class="legend-group"><h3>${escapeHtml(group.label)}</h3><div>${group.entries.map(entry => `<span title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}<span class="legend-line" style="border-color:${entry.borderColor};border-style:${entry.borderDash.length ? 'dashed' : 'solid'}"></span>${escapeHtml(entry.shortLabel)}</span>`).join('')}</div></section>`).join('')
+    element('#chart-legend').innerHTML = groupedSeries.map(group => `<section class="legend-group"><h3>${escapeHtml(group.label)}</h3><div>${group.entries.map(entry => `<span>${runtimeMarker(entry.runtimeId, entry.borderColor)}<span class="legend-line" style="border-color:${entry.borderColor};border-style:${entry.borderDash.length ? 'dashed' : 'solid'}"></span>${escapeHtml(entry.shortLabel)}</span>`).join('')}</div></section>`).join('')
     element('#chart-tooltip').hidden = true
     chart?.destroy()
     chart = new Chart(element<HTMLCanvasElement>('#chart'), {
-      type: 'line', data: { labels: runs.map(run => run.commit), datasets: series },
+      type: 'line', data: { labels: runs.map(runLabel), datasets: series },
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
         interaction: { mode: 'index', intersect: false },
@@ -358,7 +372,7 @@ function renderDashboard(data: Dataset) {
                 const renderPoint = (point: typeof dataPoints[number], ranked: boolean) => {
                   const entry = series[point.datasetIndex]!
                   const family = groupedSeries.find(group => group.entries.includes(entry))!.label
-                  return `<div title="${escapeHtml(entry.label)}">${runtimeMarker(entry.runtimeId, entry.borderColor)}${ranked ? `<span class="tooltip-family">${escapeHtml(family)}</span>` : ''}<span class="tooltip-variant">${escapeHtml(entry.shortLabel)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`
+                  return `<div>${runtimeMarker(entry.runtimeId, entry.borderColor)}${ranked ? `<span class="tooltip-family">${escapeHtml(family)}</span>` : ''}<span class="tooltip-variant">${escapeHtml(entry.shortLabel)}</span><b>${format(point.parsed.y!)} ${escapeHtml(currentMetric.unit)}</b></div>`
                 }
                 popup.querySelector<HTMLElement>('.tooltip-values')!.dataset.mode = tooltipMode
                 const comparisonPlatforms = data.platforms.filter(platform => selectedPlatforms.has(platform.id))
@@ -371,7 +385,7 @@ function renderDashboard(data: Dataset) {
                 const renderComparison = () => `<section class="tooltip-comparison" role="table" aria-label="Platform comparison (${escapeHtml(currentMetric.unit)})" style="--platform-count:${comparisonPlatforms.length}"><div class="tooltip-comparison-header" role="row"><span role="columnheader">Variant (${escapeHtml(currentMetric.unit)})</span>${comparisonPlatforms.map(platform => {
                   const active = sort?.platformId === platform.id
                   const direction = active ? ascending ? 'ascending' : 'descending' : 'none'
-                  return `<span role="columnheader" aria-sort="${direction}"><button type="button" data-tooltip-sort="${escapeHtml(platform.id)}" title="Sort by ${escapeHtml(platform.label)}" aria-label="Sort by ${escapeHtml(platform.label)}">${escapeHtml(platform.label)}<i data-lucide="${active ? ascending ? 'arrow-up' : 'arrow-down' : 'arrow-up-down'}"></i></button></span>`
+                  return `<span role="columnheader" aria-sort="${direction}"><button type="button" data-tooltip-sort="${escapeHtml(platform.id)}" aria-label="Sort by ${escapeHtml(platform.label)}">${escapeHtml(platform.label)}<i data-lucide="${active ? ascending ? 'arrow-up' : 'arrow-down' : 'arrow-up-down'}"></i></button></span>`
                 }).join('')}</div>${groupedSeries.map(group => {
                   const runtimes = group.runtimes.filter(runtime => dataPoints.some(point => series[point.datasetIndex]!.runtimeId === runtime.id))
                   if (sort) runtimes.sort((first, second) => {
@@ -382,7 +396,7 @@ function renderDashboard(data: Dataset) {
                     return ascending ? firstValue - secondValue : secondValue - firstValue
                   })
                   if (!runtimes.length) return ''
-                  return `<div class="tooltip-comparison-group" role="rowgroup" aria-label="${escapeHtml(group.label)}"><h4>${escapeHtml(group.label)}</h4>${runtimes.map(runtime => `<div class="tooltip-comparison-row" role="row"><span role="cell" class="tooltip-comparison-variant" title="${escapeHtml(runtime.id)}">${runtimeMarker(runtime.id, color(runtime.id))}<span>${escapeHtml(shortRuntimeName(runtime.id))}</span></span>${comparisonPlatforms.map(platform => {
+                  return `<div class="tooltip-comparison-group" role="rowgroup" aria-label="${escapeHtml(group.label)}"><h4>${escapeHtml(group.label)}</h4>${runtimes.map(runtime => `<div class="tooltip-comparison-row" role="row"><span role="cell" class="tooltip-comparison-variant">${runtimeMarker(runtime.id, color(runtime.id))}<span>${escapeHtml(shortRuntimeName(runtime.id))}</span></span>${comparisonPlatforms.map(platform => {
                     const point = dataPoints.find(point => {
                       const entry = series[point.datasetIndex]!
                       return entry.runtimeId === runtime.id && entry.platformId === platform.id
@@ -408,7 +422,7 @@ function renderDashboard(data: Dataset) {
             },
             itemSort: (first, second) => currentMetric.direction === 'higher' ? second.parsed.y! - first.parsed.y! : first.parsed.y! - second.parsed.y!,
             callbacks: {
-              title: items => `Commit ${runs[items[0]!.dataIndex]!.commit}`,
+              title: items => `Commit ${runLabel(runs[items[0]!.dataIndex]!)}`,
               label: context => ` ${context.dataset.label}: ${format(context.parsed.y!)} ${currentMetric.unit}`,
               footer: items => runs[items[0]!.dataIndex]!.message,
             },
@@ -537,13 +551,6 @@ function renderDashboard(data: Dataset) {
     input.checked ? selectedPlatforms.add(input.value as PlatformId) : selectedPlatforms.delete(input.value as PlatformId)
     update()
   })
-  const historySelect = app.querySelector<HTMLSelectElement>('#history')
-  if (historySelect) historySelect.onchange = () => {
-    const query = new URLSearchParams(location.search)
-    query.set('history', historySelect.value)
-    for (const key of ['run', 'runtimes', 'platforms', 'metric']) query.delete(key)
-    location.search = query.toString()
-  }
   element<HTMLSelectElement>('#range').onchange = event => { range = Number((event.target as HTMLSelectElement).value); update() }
   element<HTMLSelectElement>('#run').onchange = event => { selectedRunId = (event.target as HTMLSelectElement).value; updateSnapshot() }
   let toastTimer: ReturnType<typeof setTimeout>

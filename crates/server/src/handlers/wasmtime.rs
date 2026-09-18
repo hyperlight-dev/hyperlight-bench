@@ -3,7 +3,7 @@ use std::sync::Arc;
 use sandbox_observer::observer::CpuTimeObserver;
 
 use super::Handler;
-use crate::{DEFAULT_REQUEST_BODY, SandboxReuseStrategy};
+use crate::{DEFAULT_REQUEST_URI, SandboxReuseStrategy};
 
 mod bindings {
     wasmtime::component::bindgen!(in "../../js/src/wit");
@@ -27,7 +27,6 @@ pub struct WasmtimeContext {
     engine: wasmtime::Engine,
     component: wasmtime::component::Component,
     linker: wasmtime::component::Linker<()>,
-    // Below are populated by `load` and `unload`
     store: Option<wasmtime::Store<()>>,
     instance: Option<bindings::HandlerWorld>,
 }
@@ -49,10 +48,7 @@ impl Handler for WasmtimeHandler {
         }
     }
 
-    fn new_context(
-        worker: &Self::WorkerState,
-        _strategy: SandboxReuseStrategy,
-    ) -> Self::Context {
+    fn new_context(worker: &Self::WorkerState, _strategy: SandboxReuseStrategy) -> Self::Context {
         let mut config = wasmtime::Config::new();
         match worker.source {
             ComponentSource::Wasm(_) => {}
@@ -92,9 +88,9 @@ impl Handler for WasmtimeHandler {
     fn load(mut ctx: Self::Context) -> Self::Context {
         let mut store = wasmtime::Store::new(&ctx.engine, ());
 
-        let bindings =
+        let instance =
             bindings::HandlerWorld::instantiate(&mut store, &ctx.component, &ctx.linker).unwrap();
-        let _ = ctx.instance.insert(bindings);
+        let _ = ctx.instance.insert(instance);
         let _ = ctx.store.insert(store);
         ctx
     }
@@ -106,25 +102,18 @@ impl Handler for WasmtimeHandler {
     }
 
     fn handle_request(ctx: &mut Self::Context) -> String {
-        let bindings = ctx.instance.as_ref().unwrap();
+        let instance = ctx.instance.as_ref().unwrap();
 
-        let parsed: serde_json::Value = serde_json::from_str(DEFAULT_REQUEST_BODY)
-            .unwrap_or_else(|_| serde_json::json!({"uri": "/default.html"}));
-
-        let uri = parsed["uri"].as_str().unwrap().to_string();
-
-        let request = bindings::exports::hyperlight::bench::handler_interface::Request { uri };
+        let request = bindings::exports::hyperlight::bench::handler_interface::Request {
+            uri: DEFAULT_REQUEST_URI.to_string(),
+        };
 
         // Call the WIT handler
-        let handler = bindings.hyperlight_bench_handler_interface();
+        let handler = instance.hyperlight_bench_handler_interface();
         let result = handler
             .call_handleevent(ctx.store.as_mut().unwrap(), &request)
             .unwrap();
 
-        // Return the result as JSON
-        serde_json::json!({
-            "uri": result.uri
-        })
-        .to_string()
+        format!("{{\"uri\":\"{}\"}}", result.uri)
     }
 }

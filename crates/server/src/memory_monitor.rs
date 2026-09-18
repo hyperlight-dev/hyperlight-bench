@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use sysinfo::{Pid, ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::signal;
 
 use crate::{Runtime, SandboxReuseStrategy};
@@ -16,9 +16,9 @@ struct MemoryUsageEntry {
     value: u64,
 }
 
-/// Monitors and logs memory usage every second
+/// Samples peak resident memory every 500 ms.
 pub(crate) async fn monitor_memory_usage(peak_memory: Arc<AtomicU64>) {
-    let mut system = System::new_all();
+    let mut system = System::new();
     let current_pid = Pid::from_u32(std::process::id());
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
 
@@ -26,7 +26,11 @@ pub(crate) async fn monitor_memory_usage(peak_memory: Arc<AtomicU64>) {
 
     loop {
         interval.tick().await;
-        system.refresh_all();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[current_pid]),
+            true,
+            ProcessRefreshKind::new().with_memory(),
+        );
 
         if let Some(process) = system.process(current_pid) {
             peak_resident_memory_usage_bytes =
@@ -73,7 +77,11 @@ pub(crate) async fn setup_signal_handler(
     }
     let current_pid = Pid::from_u32(std::process::id());
     let mut system = System::new();
-    system.refresh_processes(ProcessesToUpdate::Some(&[current_pid]), true);
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[current_pid]),
+        true,
+        ProcessRefreshKind::new().with_memory(),
+    );
     let final_bytes = system.process(current_pid).expect("Missing benchmark process").memory();
     let peak_bytes = peak_memory.load(Ordering::Relaxed).max(final_bytes);
 

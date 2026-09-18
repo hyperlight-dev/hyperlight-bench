@@ -47,7 +47,7 @@ export const metrics: Metric[] = [
 export const strategies: Strategy[] = ['reload', 'reuse', 'new']
 export const catalog = { runtimes, platforms, metrics }
 export const benchmark = {
-  id: 'http-redirect', version: 2,
+  id: 'http-redirect', version: 3,
   settings: {
     durationSeconds: 60, concurrency: 50, poolSize: 4, workerThreads: 'available-parallelism', workerReadiness: 'all-workers',
     sandboxTimeoutMs: 1000, timeoutCheckIntervalMs: 10, clientTimeoutSeconds: null,
