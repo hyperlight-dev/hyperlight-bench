@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "id": "35391204931",
+    "attempt": 2
+  },
+  "pullRequest": {
+    "repository": "hyperlight-dev/hyperlight-bench",
+    "number": 19,
+    "head": "3fa6b40c65064304dd71bbdd1ff1e46e73463858",
+    "base": "0cee4085787c7966cf262829990631da3c3b30b3"
+  },
+  "merge": {
+    "sha": "e132ebec7567b89b461e0fdd7272585568a2873b",
+    "tree": "c1fa29d0c087858829f6feebb7f4857df9d1f809",
+    "mergedAt": "2026-09-18T21:54:51Z",
+    "message": "Improve benchmark lifecycle and result history (#19)\n\n## Summary\n\n* Correct Restore, Reuse, and Renew behavior across the benchmark\nhandlers.\n* Normalize request inputs and improve peak-memory sampling.\n* Version benchmark definitions and preserve selectable result\nhistories.\n* Clarify runtime lifecycle details and request-time code-selection\nlimitations.\n* Improve dashboard comparison, labeling, tables, and responsive\nstyling.\n\nSigned-off-by: Ludvig Liljenberg <4257730+ludfjig@users.noreply.github.com>"
+  }
+}
