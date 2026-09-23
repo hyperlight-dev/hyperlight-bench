@@ -1,6 +1,14 @@
 default:
     @just --list
 
+# Install the pinned benchmark build and load tools.
+setup-tools:
+    scripts/setup-tools.sh
+
+# Install the pinned load tool.
+setup-bench-tools:
+    scripts/setup-tools.sh --bench-only
+
 # Generate the binary WIT interface used by Rust bindings.
 build-handler-wit:
     node scripts/build-harness.ts wit

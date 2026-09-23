@@ -89,7 +89,7 @@ runs:
     id: rust-cache
     uses: Swatinem/rust-cache@v2
     with:
-      shared-key: ${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}
+      shared-key: ${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}-${{ hashFiles('tool-versions.sh') }}
       workspaces: |
         . -> target
         crates/handler-rs -> target
@@ -111,96 +111,10 @@ runs:
       
       echo "✅ Cargo is available: $(cargo --version)"
 
-      # Required tool versions (crates.io)
-      WASM_TOOLS_MIN_VERSION="1.259.0"
-      CARGO_HYPERLIGHT_REQUIRED_VERSION="0.1.14"
-      OHA_REQUIRED_VERSION="1.9.0"
-
-      # hyperlight-wasm-aot: supports either a crates.io version (e.g. "0.15.0")
-      # or a git revision (e.g. "734fb51"). HYPERLIGHT_GIT_URL is only used in git mode.
-      # IMPORTANT: hyperlight-wasm-aot bundles a specific wasmtime version internally.
-      # The wasmtime-aot benchmark handler loads .aot files using its own wasmtime dep,
-      # so the pinned wasmtime version in crates/server/Cargo.toml MUST match exactly.
-      HYPERLIGHT_REQUIRED_VERSION="0.15.0"
-      HYPERLIGHT_GIT_URL="https://github.com/hyperlight-dev/hyperlight-wasm"
-
-      COMPONENTIZE_QJS_REQUIRED_VERSION="0.3.0"
-      
       if [[ "${{ inputs.BENCH_ONLY }}" != "true" ]]; then
-        if command -v wasm-tools &> /dev/null; then
-          WASM_TOOLS_CURRENT_VERSION=$(wasm-tools --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          WASM_TOOLS_CURRENT_VERSION=${WASM_TOOLS_CURRENT_VERSION:-"unknown"}
-          if [[ "$WASM_TOOLS_CURRENT_VERSION" != "unknown" ]] && printf '%s\n' "$WASM_TOOLS_MIN_VERSION" "$WASM_TOOLS_CURRENT_VERSION" | sort -V -C; then
-            echo "wasm-tools $WASM_TOOLS_CURRENT_VERSION already available (cached)"
-          else
-            echo "wasm-tools $WASM_TOOLS_CURRENT_VERSION does not meet minimum $WASM_TOOLS_MIN_VERSION. Installing..."
-            cargo install wasm-tools@$WASM_TOOLS_MIN_VERSION --locked --force
-          fi
-        else
-          echo "Installing wasm-tools $WASM_TOOLS_MIN_VERSION..."
-          cargo install wasm-tools@$WASM_TOOLS_MIN_VERSION --locked
-        fi
-
-        # Install hyperlight-wasm-aot if not cached or wrong version.
-        # Can use either git revision or version (e.g., "0.15.0" or "734fb51")
-        # Check if this looks like a git revision (hex chars) or version
-        if [[ "$HYPERLIGHT_REQUIRED_VERSION" =~ ^[a-f0-9]+$ ]]; then
-          # Git mode - always reinstall since we can't check git revision from binary
-          echo "Installing hyperlight-wasm-aot from git revision $HYPERLIGHT_REQUIRED_VERSION..."
-          cargo install hyperlight-wasm-aot --git "$HYPERLIGHT_GIT_URL" --rev "$HYPERLIGHT_REQUIRED_VERSION" --locked --force
-        else
-          # Version mode - check if already installed
-          if command -v hyperlight-wasm-aot &> /dev/null; then
-            CURRENT_VERSION=$(hyperlight-wasm-aot --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-            if [ "$CURRENT_VERSION" = "$HYPERLIGHT_REQUIRED_VERSION" ]; then
-              echo "hyperlight-wasm-aot $CURRENT_VERSION already available (cached)"
-            else
-              echo "Installing hyperlight-wasm-aot version $HYPERLIGHT_REQUIRED_VERSION..."
-              cargo install hyperlight-wasm-aot@$HYPERLIGHT_REQUIRED_VERSION --locked --force
-            fi
-          else
-            echo "Installing hyperlight-wasm-aot version $HYPERLIGHT_REQUIRED_VERSION..."
-            cargo install hyperlight-wasm-aot@$HYPERLIGHT_REQUIRED_VERSION --locked
-          fi
-        fi
-
-        # Install componentize-qjs if not cached or wrong version
-        if command -v componentize-qjs &> /dev/null && grep -q "componentize-qjs-cli $COMPONENTIZE_QJS_REQUIRED_VERSION" "$CARGO_HOME/.crates2.json"; then
-          echo "componentize-qjs $COMPONENTIZE_QJS_REQUIRED_VERSION already available (cached)"
-        else
-          echo "Installing componentize-qjs $COMPONENTIZE_QJS_REQUIRED_VERSION..."
-          cargo install componentize-qjs-cli@$COMPONENTIZE_QJS_REQUIRED_VERSION --locked --no-default-features --force
-        fi
-
-        # Install cargo-hyperlight if not cached or wrong version
-        if command -v cargo-hyperlight &> /dev/null; then
-          CARGO_HYPERLIGHT_CURRENT_VERSION=$(cargo-hyperlight --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          CARGO_HYPERLIGHT_CURRENT_VERSION=${CARGO_HYPERLIGHT_CURRENT_VERSION:-"unknown"}
-          if [ "$CARGO_HYPERLIGHT_CURRENT_VERSION" = "$CARGO_HYPERLIGHT_REQUIRED_VERSION" ]; then
-            echo "cargo-hyperlight $CARGO_HYPERLIGHT_CURRENT_VERSION already available (cached)"
-          else
-            echo "cargo-hyperlight version mismatch: found $CARGO_HYPERLIGHT_CURRENT_VERSION, need $CARGO_HYPERLIGHT_REQUIRED_VERSION. Reinstalling..."
-            cargo install cargo-hyperlight@$CARGO_HYPERLIGHT_REQUIRED_VERSION --locked --force
-          fi
-        else
-          echo "Installing cargo-hyperlight $CARGO_HYPERLIGHT_REQUIRED_VERSION..."
-          cargo install cargo-hyperlight@$CARGO_HYPERLIGHT_REQUIRED_VERSION --locked
-        fi
-      fi
-
-      # Install oha if not cached or wrong version
-      if command -v oha &> /dev/null; then
-        OHA_CURRENT_VERSION=$(oha --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        OHA_CURRENT_VERSION=${OHA_CURRENT_VERSION:-"unknown"}
-        if [ "$OHA_CURRENT_VERSION" = "$OHA_REQUIRED_VERSION" ]; then
-          echo "oha $OHA_CURRENT_VERSION already available (cached)"
-        else
-          echo "oha version mismatch: found $OHA_CURRENT_VERSION, need $OHA_REQUIRED_VERSION. Reinstalling..."
-          cargo install oha@$OHA_REQUIRED_VERSION --locked --force
-        fi
+        scripts/setup-tools.sh
       else
-        echo "Installing oha $OHA_REQUIRED_VERSION..."
-        cargo install oha@$OHA_REQUIRED_VERSION --locked
+        scripts/setup-tools.sh --bench-only
       fi
       
       echo "Final tool status:"
