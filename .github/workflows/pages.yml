@@ -61,7 +61,7 @@ jobs:
       - run: node scripts/site-ci.ts assemble
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site/
       - uses: actions/upload-artifact@v7
@@ -102,4 +102,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - name: Deploy current site
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
