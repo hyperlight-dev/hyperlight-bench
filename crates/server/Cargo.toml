@@ -31,6 +31,6 @@ wasmtime = { version = "=36.0.14", default-features = false, features = ["cranel
 hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm", "mshv3" ]}
 hyperlight-common = { version = "0.17.0", default-features = false }
 hyperlight-js = { version = "0.4.0", features = ["mshv3"] }
-# If updating hyperlight-wasm version, also update installing `hyperlight-wasm-aot` in action.yml
+# Keep hyperlight-wasm-aot in tool-versions.sh aligned with this version.
 hyperlight-wasm = { version = "0.15.0" }
 hyperlight-component-macro = "0.17.0"

@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - '*'
     labels:
       - 'benchmarks: skip'
   - package-ecosystem: npm
@@ -12,6 +16,15 @@ updates:
       - /js/default
     schedule:
       interval: weekly
+    groups:
+      npm:
+        patterns:
+          - '*'
+    ignore:
+      - dependency-name: '@bytecodealliance/*'
+      - dependency-name: '*componentize*'
+      - dependency-name: '*quickjs*'
+      - dependency-name: '*starlingmonkey*'
     labels:
       - 'benchmarks: skip'
   - package-ecosystem: cargo
@@ -21,5 +34,12 @@ updates:
       - /crates/hyperlight-dummy-guest
     schedule:
       interval: weekly
+    groups:
+      cargo:
+        patterns:
+          - '*'
+    ignore:
+      - dependency-name: 'hyperlight-*'
+      - dependency-name: wasmtime
     labels:
       - 'benchmarks: skip'

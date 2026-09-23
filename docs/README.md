@@ -16,15 +16,25 @@ Development loads published history. Use `?demo=1` for synthetic data or set
 
 ## Local Benchmarks
 
-Requires Linux x86_64, Rust, just, access to `/dev/kvm` or `/dev/mshv`, and the
-tools pinned in [CI setup](../.github/actions/setup/action.yml) on `PATH`.
+Requires Linux x86_64, Rust, just, and access to `/dev/kvm` or `/dev/mshv`.
+Run `just setup-tools` to install the versions pinned in
+[tool-versions.sh](../tool-versions.sh). Build recipes use the tools on `PATH`.
 
 ```sh
 npm ci
+just setup-tools
 just setup-rust-wasm-toolchain
 just build-benchmark-artifacts
 npm run benchmark:local -- --platform kvm
 npm run dev:local
+```
+
+Set a Git revision to test an unpublished tool build. Set the matching Git URL
+as well when using a fork.
+
+```sh
+COMPONENTIZE_QJS_GIT_REV=<commit> just setup-tools
+HYPERLIGHT_WASM_AOT_GIT_REV=<commit> just setup-tools
 ```
 
 Use `--platform mshv3` on MSHV. A full run takes at least 54 minutes per platform.
