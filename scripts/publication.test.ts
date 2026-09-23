@@ -50,6 +50,20 @@ test('main pushes configure cache warming without a measurement identity', async
   }
 })
 
+test('benchmark status requires smoke only for skipped measurements', () => {
+  const check = (mode: 'required' | 'skip', results: Record<string, { result: string }>) => spawnSync(process.execPath, [resolve(root, 'scripts/check-ci-status.ts')], {
+    encoding: 'utf8', env: { ...process.env, BENCHMARK_MODE: mode, BENCHMARK_JOB_RESULTS: JSON.stringify(results) },
+  })
+  const shared = {
+    eligibility: { result: 'success' }, configure: { result: 'success' }, producer: { result: 'success' },
+  }
+  assert.equal(check('skip', { ...shared, smoke: { result: 'success' } }).status, 0)
+  assert.notEqual(check('skip', { ...shared, smoke: { result: 'failure' } }).status, 0)
+  assert.equal(check('required', {
+    ...shared, smoke: { result: 'skipped' }, prepare: { result: 'success' }, measure: { result: 'success' }, collect: { result: 'success' },
+  }).status, 0)
+})
+
 test('partial retries retain successful measurements from the same source revision', () => {
   const bundle = fixture()
   const shards = bundle.measurements.map(measurement => {
