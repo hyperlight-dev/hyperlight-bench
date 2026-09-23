@@ -95,7 +95,7 @@ The preview URL then returns 404.
 
 ## CI Rules
 
-* `benchmarks: skip` skips measurement and result publication. Dependabot applies it automatically.
+* `benchmarks: skip` replaces publishable measurements with one-request smoke coverage on KVM and MSHV. Smoke results are not published. Dependabot applies the label automatically.
 * Required checks evaluate the current PR policy on every subscribed event. Label and description edits restart the benchmark workflow. Measurements run unless `benchmarks: skip` is present.
 * Each of the 36 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies.
 * Preview builds run independently of benchmarks. Draft and Dependabot PRs have no preview.
