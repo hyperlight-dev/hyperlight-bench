@@ -10,10 +10,6 @@ permissions:
   pull-requests: read
   issues: read
 
-concurrency:
-  group: benchmark-policy-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   policy:
     name: Benchmark Policy
