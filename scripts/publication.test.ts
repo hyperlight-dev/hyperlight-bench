@@ -424,7 +424,7 @@ test('workflows must match trusted main', async context => {
   }
 })
 
-test('Pages verifies previews with revision and build jobs and excludes draft and Dependabot PRs', async context => {
+test('Pages verifies previews with revision and build jobs and excludes draft PRs', async context => {
   const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-preview-policy-'))
   const previousDirectory = process.cwd()
   const previousArguments = process.argv
@@ -443,7 +443,7 @@ test('Pages verifies previews with revision and build jobs and excludes draft an
   process.env.GITHUB_REPOSITORY = repository
   process.env.GH_TOKEN = 'fixture-token'
   const pr = {
-    number: 7, draft: false, user: { login: 'contributor' }, labels: [],
+    number: 7, draft: false, user: { login: 'dependabot[bot]' }, labels: [],
     head: { sha: 'a'.repeat(40), repo: { full_name: repository } },
     base: { sha: 'b'.repeat(40), ref: 'main', repo: { full_name: repository } },
   }
@@ -470,7 +470,7 @@ test('Pages verifies previews with revision and build jobs and excludes draft an
     const responses: Record<string, unknown> = {
       'git/ref/heads/main': { object: { sha: pr.base.sha } },
       'git/matching-refs/heads/data': [],
-      pulls: [pr, { ...pr, number: 8, user: { login: 'dependabot[bot]' } }, { ...pr, number: 9, draft: true }],
+      pulls: [pr, { ...pr, number: 9, draft: true }],
       'pulls/7': pr,
       'actions/runs/123': run,
       'actions/artifacts/456': artifact,

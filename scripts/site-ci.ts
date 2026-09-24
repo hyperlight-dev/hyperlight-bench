@@ -20,7 +20,7 @@ async function inputs() {
   const main = await github('git/ref/heads/main')
   const refs = await github('git/matching-refs/heads/data')
   const data = refs.find((entry: { ref: string }) => entry.ref === 'refs/heads/data')?.object.sha ?? null
-  const prs = (await pages('pulls?state=open&base=main')).filter(pr => !pr.draft && pr.user?.login !== 'dependabot[bot]')
+  const prs = (await pages('pulls?state=open&base=main')).filter(pr => !pr.draft)
   return {
     prs,
     snapshot: {
