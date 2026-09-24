@@ -42,11 +42,13 @@ function pushStore() {
 
 async function verifiedRun(runId: number, attempt: number) {
   const run = await github(`actions/runs/${runId}/attempts/${attempt}`)
-  if (run.event !== 'pull_request' || run.conclusion !== 'success' || run.path !== '.github/workflows/benchmark.yml') {
+  if (run.event !== 'pull_request' || run.conclusion !== 'success' || run.path !== '.github/workflows/benchmark-trigger.yml') {
     throw new Error('Expected a successful PR Benchmark workflow attempt')
   }
-  if (!await workflowTrusted('.github/workflows/benchmark.yml', run.head_sha)) {
-    throw new Error('Benchmark workflow must match current main. After merge, rerun this publication workflow.')
+  for (const path of ['.github/workflows/benchmark-trigger.yml', '.github/workflows/benchmark.yml']) {
+    if (!await workflowTrusted(path, run.head_sha)) {
+      throw new Error('Benchmark workflow files must match current main. After merge, rerun this publication workflow.')
+    }
   }
   const latestJobs = new Map<string, any>()
   for (let currentAttempt = attempt; currentAttempt >= 1; currentAttempt--) {
@@ -64,10 +66,14 @@ async function verifiedRun(runId: number, attempt: number) {
   const jobs = [...latestJobs.values()]
   const expected = new Map([
     ['eligibility', 1], ['configure', 1], ['producer', 1], ['prepare', 2],
-    ['measure', publicationPolicy.catalog.platforms.length * publicationPolicy.catalog.runtimes.length], ['collect', 1], ['Benchmark Status', 1],
+    ['measure', publicationPolicy.catalog.platforms.length * publicationPolicy.catalog.runtimes.length],
+    ['collect', 1], ['Workload Status', 1], ['Benchmark Status', 1],
   ])
   for (const [name, count] of expected) {
-    const matching = jobs.filter(job => job.name === name || job.name.startsWith(`${name} (`))
+    const matching = jobs.filter(job => {
+      const leaf = job.name.split(' / ').at(-1)
+      return leaf === name || leaf?.startsWith(`${name} (`)
+    })
     if (matching.length !== count || matching.some(job => job.conclusion !== 'success')) {
       throw new Error(`Run ${runId} through attempt ${attempt} requires ${count} successful ${name} jobs. Rerun the failed jobs.`)
     }

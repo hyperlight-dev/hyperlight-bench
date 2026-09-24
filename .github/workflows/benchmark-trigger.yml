@@ -1,0 +1,38 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  workload:
+    concurrency:
+      group: benchmark-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/benchmark.yml
+
+  benchmark-status:
+    name: Benchmark Status
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: workload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Require the benchmark workload to succeed
+        env:
+          BENCHMARK_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node scripts/check-ci-status.ts
