@@ -62,6 +62,8 @@ test('benchmark status requires smoke only for skipped measurements', () => {
   assert.equal(check('required', {
     ...shared, smoke: { result: 'skipped' }, prepare: { result: 'success' }, measure: { result: 'success' }, collect: { result: 'success' },
   }).status, 0)
+  assert.equal(check('skip', { workload: { result: 'success' } }).status, 0)
+  assert.notEqual(check('skip', { workload: { result: 'cancelled' } }).status, 0)
 })
 
 test('partial retries retain successful measurements from the same source revision', () => {
@@ -414,7 +416,7 @@ test('workflows must match trusted main', async context => {
     assert.ok(path.startsWith('contents/'), `Unexpected GitHub request: ${path}`)
     return Response.json({ encoding: 'base64', content: Buffer.from(content).toString('base64') })
   })
-  for (const workflow of ['benchmark', 'preview']) {
+  for (const workflow of ['benchmark', 'benchmark-trigger', 'preview']) {
     const path = `.github/workflows/${workflow}.yml`
     writeFileSync(path, 'trusted workflow')
     content = 'trusted workflow'
@@ -511,8 +513,9 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     id: 12345, run_attempt: 1, event: 'pull_request', conclusion: 'success', head_sha: 'a'.repeat(40), pull_requests: [{ number: 7 }],
   } }
   writeJson(eventPath, notification, false)
-  const workflow = readFileSync(resolve(root, '.github/workflows/benchmark.yml'), 'utf8')
-  let workflowContent = workflow
+  const triggerWorkflow = readFileSync(resolve(root, '.github/workflows/benchmark-trigger.yml'), 'utf8')
+  let triggerWorkflowContent = triggerWorkflow
+  const workloadWorkflow = readFileSync(resolve(root, '.github/workflows/benchmark.yml'), 'utf8')
   const bundle = fixture()
   const pr = {
     number: 7, base: { ref: 'main', repo: { full_name: repository }, sha: bundle.run.pullRequest!.base },
@@ -524,9 +527,10 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   let failedJob = false
   let pushes = 0
   let downloads = 0
-  const jobs = ['eligibility', 'configure', 'producer', 'collect', 'Benchmark Status',
-    ...Array.from({ length: 2 }, (_, index) => `prepare (${index})`),
-    ...Array.from({ length: 36 }, (_, index) => `measure (${index})`),
+  const jobs = ['workload / eligibility', 'workload / configure', 'workload / producer',
+    'workload / collect', 'workload / Workload Status', 'Benchmark Status',
+    ...Array.from({ length: 2 }, (_, index) => `workload / prepare (${index})`),
+    ...Array.from({ length: 36 }, (_, index) => `workload / measure (${index})`),
   ].map(name => ({ name, conclusion: 'success' }))
   let retryJobs: typeof jobs = []
   const statuses: any[] = []
@@ -552,9 +556,10 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       'pulls/7': pr,
       [`commits/${pr.merge_commit_sha}/pulls`]: [pr],
       [`commits/${'d'.repeat(40)}/pulls`]: [pr],
-      'actions/runs/12345/attempts/1': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
-      'actions/runs/12345/attempts/2': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
-      'contents/.github/workflows/benchmark.yml': { encoding: 'base64', content: Buffer.from(workflowContent).toString('base64') },
+      'actions/runs/12345/attempts/1': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark-trigger.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
+      'actions/runs/12345/attempts/2': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark-trigger.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
+      'contents/.github/workflows/benchmark-trigger.yml': { encoding: 'base64', content: Buffer.from(triggerWorkflowContent).toString('base64') },
+      'contents/.github/workflows/benchmark.yml': { encoding: 'base64', content: Buffer.from(workloadWorkflow).toString('base64') },
       [`git/commits/${bundle.run.commit.sha}`]: { tree: { sha: bundle.run.commit.tree }, parents: [{ sha: bundle.run.pullRequest!.base }, { sha: bundle.run.pullRequest!.head }] },
       [`git/commits/${pr.merge_commit_sha}`]: { tree: { sha: mergedTree }, message: 'Benchmark results (#7)' },
     }
@@ -575,7 +580,8 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   })
   syncBuiltinESMExports()
   mkdirSync(resolve(temporary, '.github/workflows'), { recursive: true })
-  writeFileSync(resolve(temporary, '.github/workflows/benchmark.yml'), workflow)
+  writeFileSync(resolve(temporary, '.github/workflows/benchmark-trigger.yml'), triggerWorkflow)
+  writeFileSync(resolve(temporary, '.github/workflows/benchmark.yml'), workloadWorkflow)
   const { main } = await import('./publish-ci.ts')
   const clearStore = () => {
     rmSync(resolve(temporary, 'data-store'), { recursive: true, force: true })
@@ -643,7 +649,8 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     const originalUrl = bundle.run.workflow.url
     bundle.run.attempt = 2
     bundle.run.workflow.url = `https://github.com/${repository}/actions/runs/12345/attempts/2`
-    retryJobs = jobs.filter(job => ['eligibility', 'measure (0)', 'collect', 'Benchmark Status'].includes(job.name))
+    retryJobs = jobs.filter(job => ['eligibility', 'measure (0)', 'collect', 'Workload Status', 'Benchmark Status']
+      .includes(job.name.split(' / ').at(-1)!))
     failedJob = true
     writeJson(eventPath, { workflow_run: { ...notification.workflow_run, run_attempt: 2 } }, false)
     try {
@@ -653,10 +660,10 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       assert.deepEqual(readJson(resolve(temporary, 'data-store/index.json')), { schemaVersion: 1, runs: [{ id: '12345', attempt: 2 }] })
       const stored = validateCompleteRun(readJson(resolve(temporary, 'data-store/runs/12345/2.json')))
       assert.deepEqual(stored.measurements, bundle.measurements)
-      retryJobs = retryJobs.map(job => ({ ...job, conclusion: job.name === 'measure (0)' ? 'failure' : 'success' }))
+      retryJobs = retryJobs.map(job => ({ ...job, conclusion: job.name.endsWith('measure (0)') ? 'failure' : 'success' }))
       await assert.rejects(main(), /successful measure/)
       assert.equal(downloads, 1, 'A failed retry must not use an earlier successful job')
-      retryJobs = retryJobs.filter(job => job.name !== 'eligibility')
+      retryJobs = retryJobs.filter(job => !job.name.endsWith('eligibility'))
       await assert.rejects(main(), /successful eligibility/)
       assert.equal(downloads, 1)
     } finally {
@@ -700,16 +707,16 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   })
   await context.test('changed workflows cannot archive before matching main', async () => {
     clearStore()
-    workflowContent = `${workflow}\n`
+    triggerWorkflowContent = `${triggerWorkflow}\n`
     pr.merged = false
     pr.state = 'open'
     try {
-      await assert.rejects(main(), /workflow must match current main/)
+      await assert.rejects(main(), /workflow files must match current main/)
       assert.equal(downloads, 0)
       assert.equal(pushes, 0)
       assert.equal(statuses.at(-1).state, 'failure')
     } finally {
-      workflowContent = workflow
+      triggerWorkflowContent = triggerWorkflow
       pr.merged = true
       pr.state = 'closed'
       clearStore()

@@ -1,20 +1,12 @@
-name: Benchmark
+name: Benchmark Workload
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
+  workflow_call:
 
 permissions:
   contents: read
   pull-requests: read
   issues: read
-
-concurrency:
-  group: benchmark-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -291,7 +283,7 @@ jobs:
 
   # Provide one required check that also reports failed, skipped, or cancelled stages.
   benchmark-status:
-    name: Benchmark Status
+    name: Workload Status
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [eligibility, configure, producer, smoke, prepare, measure, collect]
     runs-on: ubuntu-latest
