@@ -13,16 +13,41 @@ permissions:
 jobs:
   policy:
     name: Benchmark Policy
+    concurrency:
+      group: benchmark-policy-${{ github.event.pull_request.number }}
+      cancel-in-progress: >-
+        ${{
+          !contains(fromJSON('["labeled", "unlabeled", "edited"]'), github.event.action) ||
+          contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) && github.event.label.name == 'benchmarks: skip' ||
+          github.event.action == 'edited' && github.event.changes.base != null
+        }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - id: event
+        name: Classify PR event
+        env:
+          RELEVANT: >-
+            ${{
+              !contains(fromJSON('["labeled", "unlabeled", "edited"]'), github.event.action) ||
+              contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) && github.event.label.name == 'benchmarks: skip' ||
+              github.event.action == 'edited' && github.event.changes.base != null
+            }}
+        run: echo "relevant=$RELEVANT" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
+        if: ${{ steps.event.outputs.relevant == 'true' }}
         with:
           persist-credentials: false
       - uses: actions/setup-node@v7
+        if: ${{ steps.event.outputs.relevant == 'true' }}
         with:
           node-version: '24'
       - run: npm ci --ignore-scripts
+        if: ${{ steps.event.outputs.relevant == 'true' }}
       - run: node scripts/pr-policy.ts
+        if: ${{ steps.event.outputs.relevant == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Preserve the current policy result
+        if: ${{ steps.event.outputs.relevant == 'false' }}
+        run: echo "Policy inputs are unchanged"

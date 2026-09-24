@@ -13,7 +13,27 @@ permissions:
   issues: read
 
 jobs:
+  event:
+    name: Classify Benchmark Event
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.event.outputs.relevant }}
+    steps:
+      - id: event
+        env:
+          RELEVANT: >-
+            ${{
+              github.event_name == 'push' ||
+              !contains(fromJSON('["labeled", "unlabeled", "edited"]'), github.event.action) ||
+              contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) && github.event.label.name == 'benchmarks: skip' ||
+              github.event.action == 'edited' && github.event.changes.base != null
+            }}
+        run: echo "relevant=$RELEVANT" >> "$GITHUB_OUTPUT"
+
   workload:
+    needs: event
+    if: ${{ needs.event.outputs.relevant == 'true' }}
     concurrency:
       group: benchmark-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -22,17 +42,26 @@ jobs:
   benchmark-status:
     name: Benchmark Status
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: workload
+    needs: [event, workload]
+    concurrency:
+      group: benchmark-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        if: ${{ needs.event.outputs.relevant == 'true' }}
         with:
           persist-credentials: false
       - uses: actions/setup-node@v7
+        if: ${{ needs.event.outputs.relevant == 'true' }}
         with:
           node-version: '24'
       - name: Require the benchmark workload to succeed
+        if: ${{ needs.event.outputs.relevant == 'true' }}
         env:
           BENCHMARK_JOB_RESULTS: ${{ toJSON(needs) }}
         run: node scripts/check-ci-status.ts
+      - name: Preserve the current benchmark result
+        if: ${{ needs.event.outputs.relevant == 'false' }}
+        run: echo "Benchmark inputs are unchanged"
