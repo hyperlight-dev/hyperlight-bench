@@ -108,7 +108,7 @@ The preview URL then returns 404.
 
 * `benchmarks: skip` replaces publishable measurements with one-request smoke coverage on KVM and MSHV. Smoke results are not published. Dependabot applies the label automatically.
 * Required checks evaluate the current PR policy on every subscribed event. Label and description edits restart the benchmark workflow. Measurements run unless `benchmarks: skip` is present.
-* Each of the 50 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies.
+* Each of the 50 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies. They run the servers each platform's `prepare` job built once, rather than compiling their own.
 * Preview builds run independently of benchmarks. Draft PRs have no preview.
 * Production uses published history. Previews include matching pending results when available.
 * Merge requires `Benchmark Policy`, `Benchmark Status`, an up-to-date branch, and squash merging. Required PR review count is zero. Preview and publication success do not block merge.

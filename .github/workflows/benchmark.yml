@@ -168,7 +168,8 @@ jobs:
       - name: Smoke test every configuration
         run: npm run benchmark:local -- --platform ${{ matrix.platform }} --smoke
 
-  # Prime each platform's Cargo cache before benchmark jobs fan out.
+  # Build each platform's servers once, before benchmark jobs fan out, so the
+  # measurement jobs do not compile them fifty times over.
   prepare:
     needs: [eligibility, configure, producer]
     if: ${{ !cancelled() && (github.event_name == 'push' || (needs.eligibility.result == 'success' && needs.eligibility.outputs.mode != 'skip')) && needs.configure.result == 'success' && needs.producer.result == 'success' }}
@@ -196,9 +197,22 @@ jobs:
         with:
           name: guest-inputs
           path: .
-      - name: Prime server build cache
-        if: steps.setup-rust.outputs.CACHE_HIT != 'true'
+      - name: Build benchmark servers
+        if: github.event_name == 'pull_request' || steps.setup-rust.outputs.CACHE_HIT != 'true'
         run: node scripts/build-harness.ts servers
+      # The load generator too, so measurement jobs need no Rust setup.
+      - if: github.event_name == 'pull_request'
+        run: cp "$(command -v oha)" artifacts/bin/oha
+      - if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: servers-${{ matrix.platform }}
+          overwrite: true
+          path: |
+            artifacts/bin/
+            artifacts/build-info.json
+          if-no-files-found: error
+          retention-days: 7
 
   # Share setup across the three strategies for each runtime and platform.
   measure:
@@ -222,18 +236,18 @@ jobs:
           key: npm-scripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-scripts-${{ runner.os }}-
       - run: npm ci
-      - name: Setup Rust
-        uses: ./.github/actions/setup
-        with:
-          HYPERVISOR: ${{ matrix.platform }}
-          CPU_VENDOR: amd
-          BENCH_ONLY: 'true'
       - uses: actions/download-artifact@v8
         with:
           name: guest-inputs
           path: .
-      - name: Build benchmark server
-        run: node scripts/build-harness.ts servers ${{ matrix.flavor }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: servers-${{ matrix.platform }}
+          path: artifacts/
+      # Artifacts drop the executable bit.
+      - run: |
+          chmod +x artifacts/bin/oha artifacts/bin/${{ matrix.flavor }}/http-bench
+          echo "$PWD/artifacts/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v8
         with:
           name: run-identity
