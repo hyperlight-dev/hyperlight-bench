@@ -43,3 +43,7 @@ pub const RUST_MEMORY: SandboxMemory = SandboxMemory {
     heap: 128 * 1024,
     scratch: PerStrategy::uniform(512 * 1024),
 };
+/// hyperlight-unikraft rootfs images, fetched and built by
+/// `node scripts/build-harness.ts hluk`.
+#[cfg(feature = "hluk")]
+pub const HLUK_ROOTFS_DIR: &str = "./artifacts/hluk";
