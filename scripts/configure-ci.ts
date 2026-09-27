@@ -24,7 +24,7 @@ if (pullRequest) {
 }
 const platforms = Object.entries(runnerPools).map(([platform, runner]) => ({ platform, labels: ['self-hosted', 'Linux', 'X64', `1ES.Pool=${runner.pool}`] }))
 const configurations = platforms.flatMap(platform => runtimes.map(runtime => ({
-  ...platform, runtime: runtime.id, flavor: serverFlavor(runtime.id),
+  ...platform, runtime: runtime.id, flavor: serverFlavor(runtime.id, platform.platform),
 })))
 if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required')
 appendFileSync(process.env.GITHUB_OUTPUT, `platforms=${JSON.stringify({ include: platforms })}\nconfigurations=${JSON.stringify({ include: configurations })}\n`)

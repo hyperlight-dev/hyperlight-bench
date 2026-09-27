@@ -25,8 +25,8 @@ export function createMockBundles(): RunBundle[] {
     'Reuse request buffers', 'Refresh runner image', 'Refine timeout handling',
     'Update sandbox snapshots', 'Update HTTP workload',
   ]
-  const throughput = [184000, 138000, 47000, 38000, 5200, 69000, 97000, 74000, 112000, 88000, 123000, 141000, 7100, 135000, 8500, 13000, 46000, 59000]
-  const memory = [22, 39, 68, 157, 91, 58, 34, 182, 79, 148, 65, 29, 72, 47, 45, 38, 28, 24]
+  const throughput = [184000, 138000, 47000, 38000, 5200, 69000, 97000, 74000, 112000, 88000, 123000, 141000, 7100, 135000, 8500, 13000, 46000, 59000, 52000, 31000, 9400, 8800, 1200, 27000, 11000]
+  const memory = [22, 39, 68, 157, 91, 58, 34, 182, 79, 148, 65, 29, 72, 47, 45, 38, 28, 24, 96, 118, 610, 344, 1480, 402, 415]
   return messages.map((message, runIndex) => {
     const runners = createRunners(runIndex)
     const measurements: RunBundle['measurements'] = runtimes.flatMap((runtime, runtimeIndex) =>

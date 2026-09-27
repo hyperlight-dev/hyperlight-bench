@@ -98,6 +98,8 @@ jobs:
           CACHE_SCOPE: producer-v2
           SAVE_CACHES: 'true'
       - run: rustup toolchain install nightly-2026-02-16 --component rust-src --target wasm32-wasip2 --profile minimal
+      # The hluk dummy driver is built against musl (see build-harness.ts).
+      - run: test -f /usr/lib/x86_64-linux-musl/rcrt1.o || { sudo apt-get update -q && sudo apt-get install -y -q musl-dev; }
       - run: node scripts/build-harness.ts inputs
       # Build the embedded Hyperlight runtimes for reuse by platform jobs.
       - run: node scripts/build-harness.ts servers native
@@ -125,6 +127,7 @@ jobs:
             crates/hyperlight-dummy-guest/target/x86_64-hyperlight-none/release/hyperlight-dummy-guest
             target/hyperlight-js-runtime/x86_64-hyperlight-none/release/hyperlight-js-runtime
             target/hyperlight-wasm-runtime/x86_64-hyperlight-none/release/hyperlight-wasm-runtime
+            artifacts/hluk/*.cpio
           if-no-files-found: error
           retention-days: 7
 
