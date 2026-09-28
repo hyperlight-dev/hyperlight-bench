@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { readFileSync } from 'node:fs'
 
 const repository = process.env.GITHUB_REPOSITORY!
 if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY is required')
@@ -26,12 +25,6 @@ export async function pages(path: string): Promise<any[]> {
     entries.push(...batch)
     if (batch.length < 100) return entries
   }
-}
-
-export async function workflowTrusted(path: string, head: string): Promise<boolean> {
-  const workflow = await github(`contents/${path}?ref=${head}`)
-  if (workflow.encoding !== 'base64') return false
-  return Buffer.from(workflow.content, 'base64').toString('utf8') === readFileSync(path, 'utf8')
 }
 
 const commit = z.string().regex(/^[a-f0-9]{40}$/)

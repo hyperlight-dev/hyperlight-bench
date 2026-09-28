@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { assembleSite, previewBuildSchema } from './assemble-site.ts'
-import { eligibility, github, pages, workflowTrusted } from './github-pr.ts'
+import { eligibility, github, pages } from './github-pr.ts'
 import { canonicalJson } from '../shared/results.ts'
 import { readJson, writeJson } from './result-store.ts'
 
@@ -39,7 +39,6 @@ async function verifiedBuild(run: any, pr: any, artifact: any): Promise<boolean>
     || !run.pull_requests.some((entry: { number: number }) => entry.number === pr.number)) return false
   if (!artifact || artifact.expired || artifact.name !== `preview-${pr.number}-${pr.head.sha}-${run.run_attempt}`) return false
   if (artifact.size_in_bytes > 100 * 1024 ** 2) throw new Error(`Preview artifact is too large: ${artifact.name}`)
-  if (!await workflowTrusted('.github/workflows/preview.yml', run.head_sha)) return false
   const jobs = await github(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`)
   for (const jobName of ['revision', 'build']) {
     const matches = jobs.jobs.filter((job: { name: string }) => job.name === jobName)

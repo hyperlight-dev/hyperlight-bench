@@ -397,35 +397,6 @@ test('label-only eligibility with simulated GitHub responses', async context => 
   })
 })
 
-test('workflows must match trusted main', async context => {
-  process.env.GITHUB_REPOSITORY = repository
-  process.env.GH_TOKEN = 'fixture-token'
-  const { workflowTrusted } = await import('./github-pr.ts')
-  const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-workflow-trust-'))
-  const previousDirectory = process.cwd()
-  context.after(() => {
-    process.chdir(previousDirectory)
-    rmSync(temporary, { recursive: true, force: true })
-  })
-  process.chdir(temporary)
-  mkdirSync('.github/workflows', { recursive: true })
-  const head = 'a'.repeat(40)
-  let content = 'trusted workflow'
-  context.mock.method(globalThis, 'fetch', async (url: string) => {
-    const path = new URL(url).pathname.replace(`/repos/${repository}/`, '')
-    assert.ok(path.startsWith('contents/'), `Unexpected GitHub request: ${path}`)
-    return Response.json({ encoding: 'base64', content: Buffer.from(content).toString('base64') })
-  })
-  for (const workflow of ['benchmark', 'benchmark-trigger', 'preview']) {
-    const path = `.github/workflows/${workflow}.yml`
-    writeFileSync(path, 'trusted workflow')
-    content = 'trusted workflow'
-    assert.equal(await workflowTrusted(path, head), true)
-    content = 'changed workflow'
-    assert.equal(await workflowTrusted(path, head), false)
-  }
-})
-
 test('Pages verifies previews with revision and build jobs and excludes draft PRs', async context => {
   const temporary = mkdtempSync(resolve(tmpdir(), 'benchmark-preview-policy-'))
   const previousDirectory = process.cwd()
@@ -449,9 +420,6 @@ test('Pages verifies previews with revision and build jobs and excludes draft PR
     head: { sha: 'a'.repeat(40), repo: { full_name: repository } },
     base: { sha: 'b'.repeat(40), ref: 'main', repo: { full_name: repository } },
   }
-  const workflow = readFileSync(resolve(root, '.github/workflows/preview.yml'), 'utf8')
-  mkdirSync('.github/workflows', { recursive: true })
-  writeFileSync('.github/workflows/preview.yml', workflow)
   const run = {
     id: 123, run_attempt: 1, event: 'pull_request', path: '.github/workflows/preview.yml',
     conclusion: 'success', head_sha: pr.head.sha, head_repository: pr.head.repo,
@@ -479,7 +447,6 @@ test('Pages verifies previews with revision and build jobs and excludes draft PR
       'actions/runs/123/attempts/1/jobs': { jobs: [
         { name: 'revision', conclusion: 'success' }, { name: 'build', conclusion: 'success' },
       ] },
-      'contents/.github/workflows/preview.yml': { encoding: 'base64', content: Buffer.from(workflow).toString('base64') },
     }
     assert.ok(path in responses, `Unexpected GitHub request: ${path}`)
     return Response.json(responses[path])
@@ -513,9 +480,6 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     id: 12345, run_attempt: 1, event: 'pull_request', conclusion: 'success', head_sha: 'a'.repeat(40), pull_requests: [{ number: 7 }],
   } }
   writeJson(eventPath, notification, false)
-  const triggerWorkflow = readFileSync(resolve(root, '.github/workflows/benchmark-trigger.yml'), 'utf8')
-  let triggerWorkflowContent = triggerWorkflow
-  const workloadWorkflow = readFileSync(resolve(root, '.github/workflows/benchmark.yml'), 'utf8')
   const bundle = fixture()
   const pr = {
     number: 7, base: { ref: 'main', repo: { full_name: repository }, sha: bundle.run.pullRequest!.base },
@@ -558,8 +522,6 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       [`commits/${'d'.repeat(40)}/pulls`]: [pr],
       'actions/runs/12345/attempts/1': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark-trigger.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
       'actions/runs/12345/attempts/2': { id: 12345, event: 'pull_request', conclusion: 'success', path: '.github/workflows/benchmark-trigger.yml', head_sha: workflowHead, created_at: bundle.run.createdAt },
-      'contents/.github/workflows/benchmark-trigger.yml': { encoding: 'base64', content: Buffer.from(triggerWorkflowContent).toString('base64') },
-      'contents/.github/workflows/benchmark.yml': { encoding: 'base64', content: Buffer.from(workloadWorkflow).toString('base64') },
       [`git/commits/${bundle.run.commit.sha}`]: { tree: { sha: bundle.run.commit.tree }, parents: [{ sha: bundle.run.pullRequest!.base }, { sha: bundle.run.pullRequest!.head }] },
       [`git/commits/${pr.merge_commit_sha}`]: { tree: { sha: mergedTree }, message: 'Benchmark results (#7)' },
     }
@@ -579,9 +541,6 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     return { status: 0, stdout: command === 'git' && args[0] === 'diff' ? 'fixture changes' : '', stderr: '' }
   })
   syncBuiltinESMExports()
-  mkdirSync(resolve(temporary, '.github/workflows'), { recursive: true })
-  writeFileSync(resolve(temporary, '.github/workflows/benchmark-trigger.yml'), triggerWorkflow)
-  writeFileSync(resolve(temporary, '.github/workflows/benchmark.yml'), workloadWorkflow)
   const { main } = await import('./publish-ci.ts')
   const clearStore = () => {
     rmSync(resolve(temporary, 'data-store'), { recursive: true, force: true })
@@ -703,23 +662,6 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       assert.equal(statuses.length, count)
     } finally {
       writeJson(eventPath, notification, false)
-    }
-  })
-  await context.test('changed workflows cannot archive before matching main', async () => {
-    clearStore()
-    triggerWorkflowContent = `${triggerWorkflow}\n`
-    pr.merged = false
-    pr.state = 'open'
-    try {
-      await assert.rejects(main(), /workflow files must match current main/)
-      assert.equal(downloads, 0)
-      assert.equal(pushes, 0)
-      assert.equal(statuses.at(-1).state, 'failure')
-    } finally {
-      triggerWorkflowContent = triggerWorkflow
-      pr.merged = true
-      pr.state = 'closed'
-      clearStore()
     }
   })
   await context.test('merge with no archive reports failure and requires manual archival', async () => {

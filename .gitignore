@@ -22,6 +22,7 @@ perf_*.json
 mem_*.json
 
 # Editor directories and files
+.copilot-reviews/
 .vscode/*
 !.vscode/extensions.json
 .idea

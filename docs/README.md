@@ -110,7 +110,6 @@ The preview URL then returns 404.
 * Each of the 36 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies.
 * Preview builds run independently of benchmarks. Draft PRs have no preview.
 * Production uses published history. Previews include matching pending results when available.
-* Benchmark trigger, workload, and preview workflow YAML must match `main` before publishers accept their artifacts.
 * Merge requires `Benchmark Policy`, `Benchmark Status`, an up-to-date branch, and squash merging. Required PR review count is zero. Preview and publication success do not block merge.
 
 Publication calls Pages after a main push or a data change. Pages also runs for
@@ -122,11 +121,11 @@ Benchmark checks ignore unrelated labels and title or body edits.
 
 ## Security
 
-* Outside contributors require **Approve and run**. Collaborators run automatically. Allowing preview execution also permits serving its JavaScript to visitors.
+* GitHub Actions must use **Require approval for all external contributors**. **Approve and run** authorizes pending benchmark archival and serving preview JavaScript from that revision. Collaborators run automatically.
 * PR jobs use read-only repository permissions. The separate `workflow_run` publishers execute `main` code with their own tokens.
 * Benchmark Publication uses `contents: write` and `statuses: write`. It commits to `data` as `github-actions[bot]` and restricts write paths in code.
 * Pages handles PR metadata with `pull_request_target` and executes only `main` code.
 * Pages uses `pages: write` and `id-token: write`. Configure Pages for GitHub Actions and restrict the `github-pages` environment to `main`.
-* Publishers validate PR artifacts as untrusted input. They do not execute artifact scripts or restore PR caches. Workflow matching cannot prove measurements are genuine.
+* Publishers validate PR artifacts as untrusted input. Validation and successful job topology do not prove measurements are genuine. Publishers do not execute artifact scripts or restore PR caches.
 * PRs can change workflows and check scripts. Inspect those changes before allowing execution or merging. Self-hosted runners must be disposable and isolated from credentials and sensitive networks.
 * Preview JavaScript shares production's origin and browser storage. Separate-origin hosting is required for browser isolation.
