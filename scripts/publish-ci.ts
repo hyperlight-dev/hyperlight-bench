@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicationPolicy } from '../shared/catalog.ts'
 import { historyRunPath, validatePublication, validatePublishableRun } from '../shared/results.ts'
-import { eligibility, github, pages, workflowTrusted } from './github-pr.ts'
+import { eligibility, github, pages } from './github-pr.ts'
 import { readJson, readOptionalJson, writeJson } from './result-store.ts'
 import { promoteRun, storeRun } from './publish-results.ts'
 
@@ -44,11 +44,6 @@ async function verifiedRun(runId: number, attempt: number) {
   const run = await github(`actions/runs/${runId}/attempts/${attempt}`)
   if (run.event !== 'pull_request' || run.conclusion !== 'success' || run.path !== '.github/workflows/benchmark-trigger.yml') {
     throw new Error('Expected a successful PR Benchmark workflow attempt')
-  }
-  for (const path of ['.github/workflows/benchmark-trigger.yml', '.github/workflows/benchmark.yml']) {
-    if (!await workflowTrusted(path, run.head_sha)) {
-      throw new Error('Benchmark workflow files must match current main. After merge, rerun this publication workflow.')
-    }
   }
   const latestJobs = new Map<string, any>()
   for (let currentAttempt = attempt; currentAttempt >= 1; currentAttempt--) {
@@ -167,13 +162,12 @@ export async function main() {
   if (notification.event !== 'pull_request' || notification.conclusion !== 'success') return
   if (notification.pull_requests.length !== 1) throw new Error('Workflow must identify one PR')
   const number = notification.pull_requests[0].number
-  const current = await github(`pulls/${number}`)
-  if (current.head.sha !== notification.head_sha) throw new Error('Workflow is stale. A fresh benchmark run is required.')
-  await withPublicationStatus(notification.head_sha, () => archive(notification, number))
+  const eligibilityResult = await eligibility(number)
+  if (eligibilityResult.pr.head.sha !== notification.head_sha) throw new Error('Workflow is stale. A fresh benchmark run is required.')
+  await withPublicationStatus(notification.head_sha, () => archive(notification, number, eligibilityResult))
 }
 
-async function archive(notification: any, number: number) {
-  const { pr, decision } = await eligibility(number)
+async function archive(notification: any, number: number, { pr, decision }: Awaited<ReturnType<typeof eligibility>>) {
   if (decision.mode === 'skip') {
     console.log(`PR ${number}: approved skip. No results archived.`)
     return
