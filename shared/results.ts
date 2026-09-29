@@ -266,11 +266,7 @@ export function groupHistories(bundles: RunBundle[]): RunBundle[][] {
     if (keys.has(key)) throw new Error(`Duplicate run and attempt: ${key}`)
     keys.add(key)
     if (bundle.source !== ordered[0]!.source) throw new Error('History sources differ')
-    const definition = canonicalJson({
-      id: bundle.benchmark.id, version: bundle.benchmark.version, settings: bundle.benchmark.settings,
-      metrics: bundle.catalog.metrics.map(({ id, unit, direction, methodVersion }) => ({ id, unit, direction, methodVersion })).sort((first, second) => first.id.localeCompare(second.id)),
-      runtimes: bundle.catalog.runtimes.map(({ id, engine, execution }) => ({ id, engine, execution })).sort((first, second) => first.id.localeCompare(second.id)),
-    })
+    const definition = canonicalJson({ id: bundle.benchmark.id, version: bundle.benchmark.version, settings: bundle.benchmark.settings })
     const group = groups.get(definition) ?? []
     group.push(bundle)
     groups.set(definition, group)
