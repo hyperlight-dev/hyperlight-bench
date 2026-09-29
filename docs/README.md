@@ -126,6 +126,6 @@ Benchmark checks ignore unrelated labels and title or body edits.
 * Benchmark Publication uses `contents: write` and `statuses: write`. It commits to `data` as `github-actions[bot]` and restricts write paths in code.
 * Pages handles PR metadata with `pull_request_target` and executes only `main` code.
 * Pages uses `pages: write` and `id-token: write`. Configure Pages for GitHub Actions and restrict the `github-pages` environment to `main`.
-* Publishers validate PR artifacts as untrusted input. Validation and successful job topology do not prove measurements are genuine. Publishers do not execute artifact scripts or restore PR caches.
+* Publishers validate PR artifacts as untrusted input. Artifact validation and a successful workflow do not prove measurements are genuine. Publishers do not execute artifact scripts or restore PR caches.
 * PRs can change workflows and check scripts. Inspect those changes before allowing execution or merging. Self-hosted runners must be disposable and isolated from credentials and sensitive networks.
 * Preview JavaScript shares production's origin and browser storage. Separate-origin hosting is required for browser isolation.

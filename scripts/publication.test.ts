@@ -481,6 +481,15 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   } }
   writeJson(eventPath, notification, false)
   const bundle = fixture()
+  const sourceRuntime = bundle.catalog.runtimes[0]!
+  const addedRuntimeId = 'approved-runtime'
+  bundle.catalog.runtimes.push({ ...sourceRuntime, id: addedRuntimeId })
+  bundle.benchmark.expectedConfigurations.push(...bundle.benchmark.expectedConfigurations
+    .filter(configuration => configuration.runtimeId === sourceRuntime.id)
+    .map(configuration => ({ ...configuration, runtimeId: addedRuntimeId })))
+  bundle.measurements.push(...bundle.measurements
+    .filter(measurement => measurement.runtimeId === sourceRuntime.id)
+    .map(measurement => ({ ...measurement, id: `approved-${measurement.id}`, runtimeId: addedRuntimeId })))
   const pr = {
     number: 7, base: { ref: 'main', repo: { full_name: repository }, sha: bundle.run.pullRequest!.base },
     head: { sha: bundle.run.pullRequest!.head }, labels: [] as { name: string }[], changed_files: 1,
@@ -488,15 +497,8 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   }
   let mergedTree = bundle.run.commit.tree
   let workflowHead = pr.head.sha
-  let failedJob = false
   let pushes = 0
   let downloads = 0
-  const jobs = ['workload / eligibility', 'workload / configure', 'workload / producer',
-    'workload / collect', 'workload / Workload Status', 'Benchmark Status',
-    ...Array.from({ length: 2 }, (_, index) => `workload / prepare (${index})`),
-    ...Array.from({ length: 36 }, (_, index) => `workload / measure (${index})`),
-  ].map(name => ({ name, conclusion: 'success' }))
-  let retryJobs: typeof jobs = []
   const statuses: any[] = []
   context.mock.method(globalThis, 'fetch', async (url: string, options?: RequestInit) => {
     const parsed = new URL(url)
@@ -509,12 +511,6 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       assert.equal(status.target_url, `https://github.com/${repository}/actions/runs/999/attempts/2`)
       statuses.push(status)
       return Response.json(status)
-    }
-    if (path.endsWith('/jobs')) {
-      const page = Number(parsed.searchParams.get('page'))
-      const response = structuredClone(path.includes('/attempts/2/') ? retryJobs : jobs)
-      if (failedJob && !path.includes('/attempts/2/')) response[0]!.conclusion = 'failure'
-      return Response.json({ jobs: response.slice((page - 1) * 100, page * 100), total_count: response.length })
     }
     const responses: Record<string, unknown> = {
       'pulls/7': pr,
@@ -554,7 +550,10 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
     assert.equal(readFileSync(outputPath, 'utf8'), 'changed=true\n')
     assert.equal(downloads, 1)
     assert.deepEqual(readJson(resolve(temporary, 'data-store/index.json')), { schemaVersion: 1, runs: [] })
-    assert.ok(existsSync(resolve(temporary, 'data-store/policies/12345/1.json')))
+    const policy = readJson(resolve(temporary, 'data-store/policies/12345/1.json')) as any
+    assert.deepEqual(policy.catalog, bundle.catalog)
+    assert.deepEqual(policy.benchmark, bundle.benchmark)
+    assert.deepEqual(policy.expectedSkus, publicationPolicy.expectedSkus)
     assert.deepEqual(statuses.map(status => status.state), ['pending', 'success'])
   })
   await context.test('main push promotes the archived candidate through commit association', async () => {
@@ -591,26 +590,20 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       writeJson(eventPath, notification, false)
     }
   })
-  await context.test('stale workflow and failed jobs cannot download artifacts', async () => {
+  await context.test('stale workflow cannot download artifacts', async () => {
     clearStore()
     workflowHead = 'e'.repeat(40)
     await assert.rejects(main(), /stale/)
     workflowHead = pr.head.sha
-    failedJob = true
-    await assert.rejects(main(), /successful eligibility/)
     assert.equal(statuses.at(-1).state, 'failure')
-    failedJob = false
     assert.equal(downloads, 0)
     assert.equal(pushes, 0)
   })
-  await context.test('partial retry archives and promotes retained successful jobs', async () => {
+  await context.test('a successful retry archives its final artifact', async () => {
     clearStore()
     const originalUrl = bundle.run.workflow.url
     bundle.run.attempt = 2
     bundle.run.workflow.url = `https://github.com/${repository}/actions/runs/12345/attempts/2`
-    retryJobs = jobs.filter(job => ['eligibility', 'measure (0)', 'collect', 'Workload Status', 'Benchmark Status']
-      .includes(job.name.split(' / ').at(-1)!))
-    failedJob = true
     writeJson(eventPath, { workflow_run: { ...notification.workflow_run, run_attempt: 2 } }, false)
     try {
       await main()
@@ -619,20 +612,27 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
       assert.deepEqual(readJson(resolve(temporary, 'data-store/index.json')), { schemaVersion: 1, runs: [{ id: '12345', attempt: 2 }] })
       const stored = validateCompleteRun(readJson(resolve(temporary, 'data-store/runs/12345/2.json')))
       assert.deepEqual(stored.measurements, bundle.measurements)
-      retryJobs = retryJobs.map(job => ({ ...job, conclusion: job.name.endsWith('measure (0)') ? 'failure' : 'success' }))
-      await assert.rejects(main(), /successful measure/)
-      assert.equal(downloads, 1, 'A failed retry must not use an earlier successful job')
-      retryJobs = retryJobs.filter(job => !job.name.endsWith('eligibility'))
-      await assert.rejects(main(), /successful eligibility/)
-      assert.equal(downloads, 1)
     } finally {
       bundle.run.attempt = 1
       bundle.run.workflow.url = originalUrl
-      retryJobs = []
-      failedJob = false
       writeJson(eventPath, notification, false)
       clearStore()
     }
+  })
+  await context.test('incomplete artifacts and untrusted runner SKUs cannot archive', async () => {
+    const measurement = bundle.measurements.pop()!
+    await assert.rejects(main(), /Missing successful configurations/)
+    bundle.measurements.push(measurement)
+    const runner = bundle.runners[0]!
+    const originalSku = runner.sku
+    const originalExpectedSku = runner.expectedSku
+    runner.sku = 'untrusted-sku'
+    runner.expectedSku = 'untrusted-sku'
+    await assert.rejects(main(), /Runner SKU differs from publication policy/)
+    runner.sku = originalSku
+    runner.expectedSku = originalExpectedSku
+    assert.equal(downloads, 2)
+    assert.equal(pushes, 0)
   })
   await context.test('label changes prevent archival and promotion', async () => {
     pr.labels = [{ name: 'benchmarks: skip' }]

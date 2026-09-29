@@ -235,12 +235,17 @@ The default policy comes from `shared/catalog.ts`. Use `--policy policy.json`
 when the measured revision requires another trusted policy. Never accept a
 publication policy supplied by untrusted PR code.
 
+CI archival builds its policy from the approved artifact's catalog and benchmark
+definitions plus the trusted runner SKUs from `main`. This permits approved
+definition changes while retaining host validation. CI does not accept a
+standalone policy from the artifact.
+
 These are local consistency checks, not proof that a PR merged. A trusted CI
 job must obtain GitHub merge metadata, verify the approved PR revisions and
-workflow attempt, verify required checks and skip eligibility, and obtain the
-actual merged tree before invoking promotion. PR code must not control this
-job's scripts or provenance inputs. `scripts/publish-ci.ts` performs these GitHub
-checks from the trusted publication workflow.
+workflow attempt, verify artifact completeness and skip eligibility, and obtain
+the actual merged tree before invoking promotion. PR code must not control this
+job's scripts or provenance inputs. `scripts/publish-ci.ts` performs these
+GitHub checks from the trusted publication workflow.
 
 CI retains the trusted publication policy under `policies/<run.id>/<attempt>.json`
 and a pending pointer under `pending/pr-<number>.json`. Pending pointers do not

@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicationPolicy } from '../shared/catalog.ts'
-import { historyRunPath, validatePublication, validatePublishableRun } from '../shared/results.ts'
+import { historyRunPath, validateCompleteRun, validatePublication, validatePublishableRun } from '../shared/results.ts'
 import { eligibility, github, pages } from './github-pr.ts'
 import { readJson, readOptionalJson, writeJson } from './result-store.ts'
 import { promoteRun, storeRun } from './publish-results.ts'
@@ -44,34 +44,6 @@ async function verifiedRun(runId: number, attempt: number) {
   const run = await github(`actions/runs/${runId}/attempts/${attempt}`)
   if (run.event !== 'pull_request' || run.conclusion !== 'success' || run.path !== '.github/workflows/benchmark-trigger.yml') {
     throw new Error('Expected a successful PR Benchmark workflow attempt')
-  }
-  const latestJobs = new Map<string, any>()
-  for (let currentAttempt = attempt; currentAttempt >= 1; currentAttempt--) {
-    let fetched = 0
-    for (let page = 1; ; page++) {
-      const response = await github(`actions/runs/${runId}/attempts/${currentAttempt}/jobs?per_page=100&page=${page}`)
-      for (const job of response.jobs) {
-        if (!latestJobs.has(job.name)) latestJobs.set(job.name, job)
-      }
-      fetched += response.jobs.length
-      if (fetched >= response.total_count) break
-      if (!response.jobs.length) throw new Error('Incomplete workflow job list')
-    }
-  }
-  const jobs = [...latestJobs.values()]
-  const expected = new Map([
-    ['eligibility', 1], ['configure', 1], ['producer', 1], ['prepare', 2],
-    ['measure', publicationPolicy.catalog.platforms.length * publicationPolicy.catalog.runtimes.length],
-    ['collect', 1], ['Workload Status', 1], ['Benchmark Status', 1],
-  ])
-  for (const [name, count] of expected) {
-    const matching = jobs.filter(job => {
-      const leaf = job.name.split(' / ').at(-1)
-      return leaf === name || leaf?.startsWith(`${name} (`)
-    })
-    if (matching.length !== count || matching.some(job => job.conclusion !== 'success')) {
-      throw new Error(`Run ${runId} through attempt ${attempt} requires ${count} successful ${name} jobs. Rerun the failed jobs.`)
-    }
   }
   return run
 }
@@ -178,7 +150,9 @@ async function archive(notification: any, number: number, { pr, decision }: Awai
   mkdirSync(incoming, { recursive: true })
   execute('gh', ['run', 'download', String(run.id), '--repo', repository, '--name', `run-${run.id}-${notification.run_attempt}`, '--dir', incoming])
   const input = resolve(incoming, 'run.json')
-  const bundle = validatePublishableRun(readJson(input), publicationPolicy)
+  const candidate = validateCompleteRun(readJson(input))
+  const policy = { ...publicationPolicy, catalog: candidate.catalog, benchmark: candidate.benchmark }
+  const bundle = validatePublishableRun(candidate, policy)
   if (bundle.run.id !== String(run.id) || bundle.run.attempt !== notification.run_attempt) throw new Error('Artifact workflow identity differs')
   await verifyCandidate(bundle, pr)
   validatePublication(bundle, {
@@ -186,8 +160,8 @@ async function archive(notification: any, number: number, { pr, decision }: Awai
     merge: { sha: bundle.run.commit.sha, tree: bundle.run.commit.tree, mergedAt: bundle.run.createdAt, message: bundle.run.commit.message },
   })
   openStore()
-  storeRun(directory, bundle)
-  writeJson(resolve(directory, 'policies', bundle.run.id, `${bundle.run.attempt}.json`), publicationPolicy, true)
+  storeRun(directory, bundle, policy)
+  writeJson(resolve(directory, 'policies', bundle.run.id, `${bundle.run.attempt}.json`), policy, true)
   const pointerPath = resolve(directory, 'pending', `pr-${number}.json`)
   const previous = readOptionalJson(pointerPath) as any
   const pointer = { id: bundle.run.id, attempt: bundle.run.attempt, createdAt: run.created_at }
