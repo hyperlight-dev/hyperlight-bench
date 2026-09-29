@@ -53,7 +53,7 @@ export function assembleSite(options: {
   if (index.preview) throw new Error('Production history must not contain preview metadata')
   const published = index.runs.map(entry => parseHistoryRun(readJson(resolve(options.store, historyRunPath(entry))), entry))
   const seen = new Set<number>()
-  function serveData(destination: string, bundles: RunBundle[], preview?: { number: number, head: string, pending: { id: string, attempt: number } | null }) {
+  function serveData(destination: string, bundles: RunBundle[], preview?: { number: number, head: string, benchmarksRequired: boolean, pending: { id: string, attempt: number } | null }) {
     groupHistories(bundles)
     const runs = bundles.map(bundle => {
       const entry = { id: bundle.run.id, attempt: bundle.run.attempt }
@@ -96,7 +96,7 @@ export function assembleSite(options: {
       const destination = resolve(options.output, 'previews', `pr-${preview.number}`)
       mkdirSync(resolve(options.output, 'previews'), { recursive: true })
       copyBuild(preview.directory, destination)
-      serveData(destination, bundles, { number: preview.number, head: preview.head, pending })
+      serveData(destination, bundles, { number: preview.number, head: preview.head, benchmarksRequired: preview.includePending, pending })
     }
   } catch (error) {
     rmSync(options.output, { recursive: true, force: true })

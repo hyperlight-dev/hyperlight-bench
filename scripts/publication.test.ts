@@ -161,6 +161,7 @@ test('Pages assembly keeps pending data inside its preview', async context => {
   assert.equal(existsSync(resolve(output, 'data', historyRunPath(bundle.run))), false)
   const previewIndex = readJson(resolve(output, 'previews/pr-7/data/index.json')) as any
   assert.equal(previewIndex.preview.head, preview.head)
+  assert.equal(previewIndex.preview.benchmarksRequired, true)
   assert.deepEqual(previewIndex.preview.pending, { id: bundle.run.id, attempt: 1 })
   context.mock.method(globalThis, 'fetch', async (input: URL) => {
     const path = resolve(output, `.${input.pathname}`)
@@ -175,7 +176,9 @@ test('Pages assembly keeps pending data inside its preview', async context => {
   assert.equal((readJson(resolve(staleOutput, 'previews/pr-7/data/index.json')) as any).preview.pending, null)
   const skippedOutput = resolve(temporary, 'skipped')
   assembleSite({ production, store, output: skippedOutput, repository, previews: [{ ...preview, includePending: false }] })
-  assert.equal((readJson(resolve(skippedOutput, 'previews/pr-7/data/index.json')) as any).runs.length, 0)
+  const skippedIndex = readJson(resolve(skippedOutput, 'previews/pr-7/data/index.json')) as any
+  assert.equal(skippedIndex.runs.length, 0)
+  assert.equal(skippedIndex.preview.benchmarksRequired, false)
   const closedOutput = resolve(temporary, 'closed')
   assembleSite({ production, store, output: closedOutput, repository, previews: [] })
   assert.equal(existsSync(resolve(closedOutput, 'previews/pr-7')), false)

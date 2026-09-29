@@ -50,7 +50,14 @@ async function start() {
 function previewLabel(data: Dataset): string {
   const preview = data.preview!
   const included = preview.pending && data.runs.some(run => run.id === `${preview.pending!.id}.${preview.pending!.attempt}`)
-  return `PR #${preview.number} / ${preview.head.slice(0, 7)} / ${included ? 'Pending results included' : preview.pending ? 'Pending results in another history' : 'No pending results for this revision'}`
+  const status = included
+    ? 'Pending results included'
+    : preview.pending
+      ? 'Pending results in another history'
+      : preview.benchmarksRequired
+        ? 'Waiting for benchmark results for this revision'
+        : 'Benchmarks skipped for this revision'
+  return `PR #${preview.number} / ${preview.head.slice(0, 7)} / ${status}`
 }
 
 function renderDashboard(data: Dataset) {

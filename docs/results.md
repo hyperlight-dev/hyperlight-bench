@@ -175,12 +175,14 @@ A preview serving copy adds `preview` to its history index:
   "preview": {
     "number": 7,
     "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "benchmarksRequired": true,
     "pending": { "id": "123456789", "attempt": 1 }
   }
 }
 ```
 
-`pending` is null when the preview has no current pending measurements. Its
+`benchmarksRequired` records whether the PR requires benchmark results. `pending`
+is null when the preview has no current pending measurements. Its
 identity must appear in `runs`. The referenced bundle must record the preview
 PR number and head. The assembler also verifies the repository and current base.
 It copies the bundle unchanged and marks its pending status in serving metadata.
