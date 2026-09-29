@@ -229,7 +229,8 @@ test('benchmark definition changes retain selectable histories and pending previ
     next.run.workflow.url = `https://github.com/${repository}/actions/runs/${next.run.id}/attempts/1`
     if (change === 'settings') next.benchmark.settings.durationSeconds = 120
     if (change === 'metric') next.catalog.metrics[0]!.methodVersion++
-    if (change !== 'version') assert.throws(() => groupHistories([...bundles, next]), /Bump the benchmark version/)
+    if (change === 'settings') assert.throws(() => groupHistories([...bundles, next]), /Bump the benchmark version/)
+    if (change === 'metric') assert.throws(() => groupHistories([...bundles, next]), /Metric definition changed/)
     next.benchmark.version++
     const policy = { ...publicationPolicy, catalog: next.catalog, benchmark: next.benchmark }
     assert.throws(() => validateHistory([first, next]))
@@ -247,6 +248,14 @@ test('benchmark definition changes retain selectable histories and pending previ
   reordered.catalog.metrics.reverse()
   reordered.catalog.runtimes.reverse()
   assert.deepEqual(groupHistories([first, reordered]), [[first, reordered]])
+  const expanded = structuredClone(first)
+  expanded.run.id = 'expanded'
+  expanded.catalog.runtimes.push({ ...expanded.catalog.runtimes[0]!, id: 'new-runtime' })
+  assert.deepEqual(groupHistories([first, expanded]), [[first, expanded]])
+  const changedRuntime = structuredClone(first)
+  changedRuntime.run.id = 'changed-runtime'
+  changedRuntime.catalog.runtimes[0]!.engine += '-changed'
+  assert.throws(() => groupHistories([first, changedRuntime]), /Runtime definition changed/)
   assert.throws(() => groupHistories([first, first]), /Duplicate run/)
   assert.throws(() => groupHistories([first, { ...reordered, source: 'local' }]), /sources differ/)
 
