@@ -129,6 +129,7 @@ export const historyIndexSchema = z.object({
   preview: z.object({
     number: positiveInteger,
     head: sha,
+    benchmarksRequired: z.boolean(),
     pending: z.object({ id: identifier, attempt: positiveInteger }).nullable(),
   }).optional(),
 }).superRefine((index, context) => {
