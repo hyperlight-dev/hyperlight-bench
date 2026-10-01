@@ -6,6 +6,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
-hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm", "mshv3" ]}
+hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm" ]}
+# mshv3 comes from the server's classic feature: a KVM-only build keeps
+# hyperlight's fast snapshot restore.
 libc = "0.2.176"
 

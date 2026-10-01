@@ -16,7 +16,8 @@ Development loads published history. Use `?demo=1` for synthetic data or set
 
 ## Local Benchmarks
 
-Requires Linux x86_64, Rust, just, and access to `/dev/kvm` or `/dev/mshv`.
+Requires Linux x86_64, Rust, just, musl (musl-dev; for the hluk dummy
+driver), and access to `/dev/kvm` or `/dev/mshv`.
 Run `just setup-tools` to install the versions pinned in
 [tool-versions.sh](../tool-versions.sh). Build recipes use the tools on `PATH`.
 
@@ -37,7 +38,7 @@ COMPONENTIZE_QJS_GIT_REV=<commit> just setup-tools
 HYPERLIGHT_WASM_AOT_GIT_REV=<commit> just setup-tools
 ```
 
-Use `--platform mshv3` on MSHV. A full run takes at least 54 minutes per platform.
+Use `--platform mshv3` on MSHV. A full run takes at least 75 minutes per platform.
 Add `--smoke` for one request per configuration or `--runtime <id>` to limit runtimes.
 Raw output is in `results/local/`. Successful runs update `public/local-data/`.
 
@@ -107,7 +108,7 @@ The preview URL then returns 404.
 
 * `benchmarks: skip` replaces publishable measurements with one-request smoke coverage on KVM and MSHV. Smoke results are not published. Dependabot applies the label automatically.
 * Required checks evaluate the current PR policy on every subscribed event. Label and description edits restart the benchmark workflow. Measurements run unless `benchmarks: skip` is present.
-* Each of the 36 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies.
+* Each of the 50 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies. They run the servers each platform's `prepare` job built once, rather than compiling their own.
 * Preview builds run independently of benchmarks. Draft PRs have no preview.
 * Production uses published history. Previews include matching pending results when available.
 * Merge requires `Benchmark Policy`, `Benchmark Status`, an up-to-date branch, and squash merging. Required PR review count is zero. Preview and publication success do not block merge.

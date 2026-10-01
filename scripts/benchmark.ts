@@ -31,7 +31,7 @@ if (!local && process.env.GITHUB_ACTIONS) {
   run.attempt = z.coerce.number().int().positive().parse(process.env.GITHUB_RUN_ATTEMPT)
   run.workflow.url = `https://github.com/${run.pullRequest!.repository}/actions/runs/${run.id}/attempts/${run.attempt}`
 }
-const executable = resolve('artifacts/bin', serverFlavor(runtime.id), 'http-bench')
+const executable = resolve('artifacts/bin', serverFlavor(runtime.id, platform), 'http-bench')
 const oha = 'oha'
 const runner = await runnerMetadata(platform, !!local)
 runner.id = configuration

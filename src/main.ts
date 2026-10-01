@@ -32,6 +32,8 @@ const lifecycleDetails = `
       <tr><th scope="row" rowspan="3">Dummy</th><td class="lifecycle-variant">Native</td><td>Handle the request in the host process.</td><td>Handle the request in the host process.</td><td>Handle the request in the host process.</td></tr>
       <tr><td class="lifecycle-variant">Hyperlight</td><td>Call the guest, then restore to the sandbox snapshot.</td><td>Call the guest.</td><td>Create a sandbox, call the guest, then destroy the sandbox.</td></tr>
       <tr><td class="lifecycle-variant">Wasm variants</td><td colspan="3">Use the matching Hyperlight Wasm or Wasmtime lifecycle above.</td></tr>
+      <tr><th scope="row" rowspan="2">Hyperlight Unikraft</th><td class="lifecycle-variant">QuickJS, Node.js, Python, .NET</td><td>Define the handler, call it, then restore to the handler-free runtime snapshot.</td><td>Call the defined handler.</td><td>Start a sandbox from the handler-free runtime snapshot (not a cold boot), define and call the handler, then destroy the sandbox.</td></tr>
+      <tr><td class="lifecycle-variant">Wasmtime, Dummy</td><td>Call the component (or the driver), then restore to the snapshot taken with it loaded.</td><td>Call the loaded component.</td><td>Start a sandbox from the loaded snapshot (not a cold boot), call it, then destroy the sandbox.</td></tr>
     </tbody></table></div>
   </details>`
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -59,9 +61,20 @@ function renderDashboard(data: Dataset) {
     platforms: data.platforms.toSorted((first, second) => Number(second.id === 'mshv3') - Number(first.id === 'mshv3')),
   }
   const params = new URLSearchParams(location.search)
-  const preferredRuntimes = ['hyperlight-js', 'hyperlight-wasm-jco', 'hyperlight-wasm-qjs', 'wasmtime-aot-jco', 'wasmtime-aot-qjs']
+  const preferredRuntimes = ['hyperlight-js', 'hyperlight-wasm-jco', 'hyperlight-wasm-qjs', 'wasmtime-aot-jco', 'wasmtime-aot-qjs', 'hluk-quickjs', 'hluk-wasmtime-qjs']
   const availablePreferred = preferredRuntimes.filter(id => data.runtimes.some(runtime => runtime.id === id))
   const defaultRuntimes = availablePreferred.length ? availablePreferred : data.runtimes.map(runtime => runtime.id)
+  // A runtime's colour is its catalog index's; the default selection's
+  // must differ, so one that repeats an earlier default's takes a free one.
+  const defaultColors = new Map<string, string>()
+  const takenSlots = new Set<number>()
+  for (const id of availablePreferred) {
+    let slot = data.runtimes.findIndex(runtime => runtime.id === id) % palette.length
+    if (takenSlots.has(slot)) slot = palette.findIndex((_, candidate) => !takenSlots.has(candidate))
+    takenSlots.add(slot)
+    defaultColors.set(id, palette[slot]!)
+  }
+  const color = (runtimeId: string) => defaultColors.get(runtimeId) ?? palette[data.runtimes.findIndex(runtime => runtime.id === runtimeId) % palette.length]!
   const defaultPlatform = data.platforms[0]!.id
   const defaultMetric = data.metrics.find(metric => metric.id === 'rps')?.id ?? data.metrics[0]!.id
   let strategy: Strategy = ['reload', 'reuse', 'new'].includes(params.get('strategy') ?? '') ? params.get('strategy') as Strategy : 'reload'
@@ -94,11 +107,14 @@ function renderDashboard(data: Dataset) {
     'wasmtime-dummy': 4,
     'wasmtime-aot-dummy': 5,
     'wasmtime-pulley-dummy': 6,
+    'hluk-dummy': 7,
+    'hluk-wasmtime-dummy': 8,
   }
   const runtimeGroups = [
     { label: 'Hyperlight JS', shape: 'circle', runtimes: data.runtimes.filter(runtime => runtime.id === 'hyperlight-js') },
     { label: 'Hyperlight Wasm', shape: 'square', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hyperlight-wasm-') && !runtime.id.endsWith('-dummy')).sort((first, second) => Number(first.id.includes('-pulley')) - Number(second.id.includes('-pulley'))) },
     { label: 'Wasmtime', shape: 'diamond', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('wasmtime-') && !runtime.id.endsWith('-dummy')) },
+    { label: 'Hyperlight Unikraft', shape: 'hexagon', runtimes: data.runtimes.filter(runtime => runtime.id.startsWith('hluk-') && !runtime.id.endsWith('-dummy')) },
     { label: 'Dummy', shape: 'triangle', runtimes: data.runtimes.filter(runtime => runtime.id === 'dummy' || runtime.id.endsWith('-dummy')).sort((first, second) => (dummyOrder[first.id] ?? Number.MAX_SAFE_INTEGER) - (dummyOrder[second.id] ?? Number.MAX_SAFE_INTEGER)) },
   ]
   const runtimeMarker = (runtimeId: string, markerColor: string) => {
@@ -108,8 +124,8 @@ function renderDashboard(data: Dataset) {
   const shortRuntimeName = (runtimeId: string) => {
     if (runtimeId === 'hyperlight-js') return 'QuickJS'
     const name = runtimeId === 'dummy' ? 'native' : runtimeId.endsWith('-dummy')
-      ? runtimeId.slice(0, -6) : runtimeId.replace(/^(hyperlight-wasm|wasmtime)-/, '')
-    const words: Record<string, string> = { native: 'Native', hyperlight: 'Hyperlight', wasm: 'Wasm', wasmtime: 'Wasmtime', aot: 'AOT', jco: 'JCO', qjs: 'QuickJS', pulley: 'Pulley' }
+      ? runtimeId.slice(0, -6) : runtimeId.replace(/^(hyperlight-wasm|wasmtime|hluk)-/, '')
+    const words: Record<string, string> = { native: 'Native', hyperlight: 'Hyperlight', wasm: 'Wasm', wasmtime: 'Wasmtime', aot: 'AOT', jco: 'JCO', qjs: 'QuickJS', pulley: 'Pulley', hluk: 'Unikraft', quickjs: 'QuickJS', node: 'Node.js', python: 'Python', dotnet: '.NET', jit: 'JIT' }
     return name.split('-').map(word => words[word] ?? word).join(' ')
   }
 
@@ -126,11 +142,10 @@ function renderDashboard(data: Dataset) {
           <label class="search-label" for="runtime-search">Find runtime</label><input id="runtime-search" type="search" placeholder="Filter runtimes..." autocomplete="off" />
           <div class="selection-actions"><button id="select-all">Select all</button><button id="select-none">Clear</button></div>
           <div id="runtime-list">${runtimeGroups.map(group => `<div class="runtime-group" role="group" aria-label="${group.label}"><h3 class="runtime-group-heading">${group.label}</h3>${group.runtimes.map(runtime => {
-            const index = data.runtimes.indexOf(runtime)
             return `
             <label class="runtime-option" data-runtime="${runtime.id}">
-              <input type="checkbox" value="${runtime.id}" ${selectedRuntimes.has(runtime.id) ? 'checked' : ''} style="accent-color:${palette[index % palette.length]}" />
-              ${runtimeMarker(runtime.id, palette[index % palette.length]!)}<span class="runtime-text"><span>${runtime.id}</span><small>${escapeHtml(runtime.engine)}</small></span>
+              <input type="checkbox" value="${runtime.id}" ${selectedRuntimes.has(runtime.id) ? 'checked' : ''} style="accent-color:${color(runtime.id)}" />
+              ${runtimeMarker(runtime.id, color(runtime.id))}<span class="runtime-text"><span>${runtime.id}</span><small>${escapeHtml(runtime.engine)}</small></span>
             </label>`
           }).join('')}</div>`).join('')}</div>
           <p id="search-empty" hidden>No matching runtimes.</p>
@@ -185,7 +200,6 @@ function renderDashboard(data: Dataset) {
     createIcons({ icons, attrs: { 'stroke-width': 1.7, 'aria-hidden': 'true' } })
     return
   }
-  const color = (runtimeId: string) => palette[data.runtimes.findIndex(runtime => runtime.id === runtimeId) % palette.length]!
   const metric = () => data.metrics.find(entry => entry.id === metricId)!
   const visibleRuns = () => data.runs.slice(-range)
   const rowsFor = (runId: string) => data.measurements.filter(entry => entry.runId === runId && entry.strategy === strategy && selectedRuntimes.has(entry.runtimeId) && selectedPlatforms.has(entry.platformId) && entry.values[metricId] !== undefined)

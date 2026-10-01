@@ -6,8 +6,23 @@ license.workspace = true
 publish = false
 
 [features]
-default = []
-pulley = ["hyperlight-wasm/pulley"]
+default = ["classic"]
+# The Wasmtime, hyperlight-js and hyperlight-wasm runtimes. They need
+# hyperlight-host's mshv3 feature, which also slows every snapshot restore
+# (scratch is zero-filled rather than dropped), so the hluk flavors build
+# without them.
+classic = [
+    "dep:wasmtime",
+    "dep:hyperlight-js",
+    "dep:hyperlight-wasm",
+    "dep:hyperlight-component-macro",
+    "hyperlight-host/mshv3",
+]
+pulley = ["classic", "hyperlight-wasm/pulley"]
+# The hyperlight-unikraft runtimes, KVM only: build with
+# --no-default-features --features hluk (or hluk-mshv on MSHV).
+hluk = ["dep:hyperlight-unikraft"]
+hluk-mshv = ["hluk", "hyperlight-unikraft/mshv"]
 time_phases = []
 
 [dependencies]
@@ -26,11 +41,13 @@ sandbox-observer = { path = "../observer" }
 # IMPORTANT: pinned to exact version because the wasmtime-aot handler loads .aot files
 # compiled by hyperlight-wasm-aot, and wasmtime requires an exact version match for AOT.
 # To find the required version, run: cargo install hyperlight-wasm-aot@<version> && rg 'wasmtime' ~/.cargo/registry/src/*/hyperlight-wasm-aot-*/Cargo.toml
-wasmtime = { version = "=36.0.14", default-features = false, features = ["cranelift", "runtime", "component-model", "pooling-allocator", "pulley" ] }
+wasmtime = { version = "=36.0.14", optional = true, default-features = false, features = ["cranelift", "runtime", "component-model", "pooling-allocator", "pulley" ] }
 # If updating hyperlight-host, don't forget to update crates/hyperlight-dummy-guest/Cargo.toml
-hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm", "mshv3" ]}
+hyperlight-host = { version = "0.17.0", default-features = false, features = [ "kvm" ]}
 hyperlight-common = { version = "0.17.0", default-features = false }
-hyperlight-js = { version = "0.4.0", features = ["mshv3"] }
+hyperlight-js = { version = "0.4.0", optional = true, features = ["mshv3"] }
 # Keep hyperlight-wasm-aot in tool-versions.sh aligned with this version.
-hyperlight-wasm = { version = "0.15.0" }
-hyperlight-component-macro = "0.17.0"
+hyperlight-wasm = { version = "0.15.0", optional = true }
+hyperlight-component-macro = { version = "0.17.0", optional = true }
+# Pinned with the rootfs images the build fetches (HLUK_VERSION in tool-versions.sh).
+hyperlight-unikraft = { version = "=0.16.0", optional = true, default-features = false }
