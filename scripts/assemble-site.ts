@@ -1,7 +1,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
-import { historyIndexSchema, historyRunPath, parseHistoryRun, runKey, groupHistories, validatePublication } from '../shared/results.ts'
+import { historyIndexSchema, historyRunPath, parseHistoryRun, runKey, groupHistories, validateHistory, validatePublication } from '../shared/results.ts'
 import type { RunBundle } from '../shared/results.ts'
 import { readJson, readOptionalJson, writeJson } from './result-store.ts'
 
@@ -54,7 +54,11 @@ export function assembleSite(options: {
   const published = index.runs.map(entry => parseHistoryRun(readJson(resolve(options.store, historyRunPath(entry))), entry))
   const seen = new Set<number>()
   function serveData(destination: string, bundles: RunBundle[], preview?: { number: number, head: string, pending: { id: string, attempt: number } | null }) {
-    groupHistories(bundles)
+    const catalogs = new Map(groupHistories(bundles).flatMap(history => {
+      const { runtimes, platforms, metrics } = validateHistory(history)
+      const catalog = { runtimes, platforms, metrics }
+      return history.map(bundle => [runKey(bundle), catalog] as const)
+    }))
     const runs = bundles.map(bundle => {
       const entry = { id: bundle.run.id, attempt: bundle.run.attempt }
       if (!index.runs.some(run => run.id === entry.id && run.attempt === entry.attempt)) return entry
@@ -69,7 +73,7 @@ export function assembleSite(options: {
       } }
     })
     const history = historyIndexSchema.parse({ schemaVersion: 1, runs, ...(preview ? { preview } : {}) })
-    for (const bundle of bundles) writeJson(resolve(destination, 'data', historyRunPath(bundle.run)), bundle, true)
+    for (const bundle of bundles) writeJson(resolve(destination, 'data', historyRunPath(bundle.run)), { ...bundle, catalog: catalogs.get(runKey(bundle))! }, true)
     writeJson(resolve(destination, 'data/index.json'), history, true)
   }
   try {

@@ -262,6 +262,16 @@ test('benchmark definition changes retain selectable histories and pending previ
   const production = resolve(temporary, 'build')
   mkdirSync(production)
   writeFileSync(resolve(production, 'index.html'), '<!doctype html><title>Fixture</title>')
+  const compatibilityStore = resolve(temporary, 'compatibility-store')
+  writeJson(resolve(compatibilityStore, historyRunPath(first.run)), first, true)
+  writeJson(resolve(compatibilityStore, historyRunPath(expanded.run)), expanded, true)
+  writeJson(resolve(compatibilityStore, 'index.json'), { schemaVersion: 1, runs: [first.run, expanded.run].map(({ id, attempt }) => ({ id, attempt })) }, true)
+  const compatibilitySite = resolve(temporary, 'compatibility-site')
+  assembleSite({ production, store: compatibilityStore, output: compatibilitySite, repository, previews: [] })
+  const servedFirst = readJson(resolve(compatibilitySite, 'data', historyRunPath(first.run))) as any
+  const servedExpanded = readJson(resolve(compatibilitySite, 'data', historyRunPath(expanded.run))) as any
+  assert.deepEqual(servedFirst.catalog, servedExpanded.catalog)
+  assert.equal(servedFirst.catalog.runtimes.length, first.catalog.runtimes.length + 1)
   const pending = fixture()
   pending.run.id = 'pending'
   pending.run.createdAt = '2026-09-05T00:00:00Z'
