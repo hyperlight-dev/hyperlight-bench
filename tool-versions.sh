@@ -3,7 +3,7 @@
 : "${OHA_VERSION:=1.9.0}"
 
 # Must use the Wasmtime version pinned by crates/server/Cargo.toml.
-: "${HYPERLIGHT_WASM_AOT_VERSION:=0.15.0}"
+: "${HYPERLIGHT_WASM_AOT_VERSION:=0.16.0}"
 : "${HYPERLIGHT_WASM_AOT_GIT_URL:=https://github.com/hyperlight-dev/hyperlight-wasm}"
 : "${HYPERLIGHT_WASM_AOT_GIT_REV:=}"
 

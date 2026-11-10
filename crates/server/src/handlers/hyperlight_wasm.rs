@@ -2,8 +2,7 @@ use super::{Handler, SandboxMemory};
 use crate::{DEFAULT_REQUEST_URI, SandboxReuseStrategy};
 
 use bindings::hyperlight::bench::handler_interface::Request;
-use hyperlight_host::sandbox::snapshot::Snapshot;
-use hyperlight_wasm::{LoadedWasmSandbox, WasmSandbox};
+use hyperlight_wasm::{LoadedWasmSandbox, Snapshot, WasmSandbox};
 use sandbox_observer::observer::{CpuTimeObserver, Observer};
 
 use std::{os::fd::AsRawFd, sync::Arc};
@@ -64,8 +63,8 @@ enum WasmState {
 
 enum WasmLifecycle {
     Renew,
-    Restore(Arc<Snapshot>),
-    Reuse(Arc<Snapshot>),
+    Restore(Snapshot<LoadedWasmSandbox>),
+    Reuse(Snapshot<LoadedWasmSandbox>),
 }
 
 pub struct HyperlightWASMContext {
@@ -123,7 +122,7 @@ impl Handler for HyperlightWASMHandler {
         let rt = bindings::register_host_functions(&mut sb, state).unwrap();
         let sb = sb.load_runtime().unwrap();
 
-        let prepare_snapshot = |sandbox: WasmSandbox, lifecycle: fn(Arc<Snapshot>) -> WasmLifecycle| {
+        let prepare_snapshot = |sandbox: WasmSandbox, lifecycle: fn(Snapshot<LoadedWasmSandbox>) -> WasmLifecycle| {
             let mut loaded = unsafe {
                 sandbox.load_module_by_mapping(worker.aot.base, worker.aot.len)
                     .expect("Failed to load the Wasm module for snapshot preparation")

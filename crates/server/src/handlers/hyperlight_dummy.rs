@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use hyperlight_host::MultiUseSandbox;
+use hyperlight_host::Sandbox;
 use hyperlight_host::sandbox::snapshot::Snapshot;
 use sandbox_observer::observer::CpuTimeObserver;
 
@@ -19,7 +19,7 @@ enum DummyLifecycle {
 }
 
 pub struct HyperlightDummyContext {
-    sandbox: MultiUseSandbox,
+    sandbox: Sandbox,
     lifecycle: DummyLifecycle,
 }
 
