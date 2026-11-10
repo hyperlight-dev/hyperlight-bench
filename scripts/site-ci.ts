@@ -38,7 +38,10 @@ async function verifiedBuild(run: any, pr: any, artifact: any): Promise<boolean>
     || run.head_sha !== pr.head.sha || run.head_repository?.full_name !== pr.head.repo.full_name
     || !run.pull_requests.some((entry: { number: number }) => entry.number === pr.number)) return false
   if (!artifact || artifact.expired || artifact.name !== `preview-${pr.number}-${pr.head.sha}-${run.run_attempt}`) return false
-  if (artifact.size_in_bytes > 100 * 1024 ** 2) throw new Error(`Preview artifact is too large: ${artifact.name}`)
+  if (artifact.size_in_bytes > 100 * 1024 ** 2) {
+    console.log(`::warning::PR ${pr.number} preview skipped: artifact is too large`)
+    return false
+  }
   const jobs = await github(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`)
   for (const jobName of ['revision', 'build']) {
     const matches = jobs.jobs.filter((job: { name: string }) => job.name === jobName)
@@ -116,7 +119,8 @@ if (mode === 'verify') {
       '--name', `preview-${preview.number}-${preview.head}-${preview.attempt}`, '--dir', directory])
     previews.push({ ...preview, directory })
   }
-  assembleSite({ production: resolve('dist'), store, output: resolve('site'), repository, previews })
+  const included = assembleSite({ production: resolve('dist'), store, output: resolve('site'), repository, previews })
+  desired.previews = desired.previews.filter(preview => included.includes(preview.number))
   try {
     await verify(desired)
   } catch (error) {
@@ -124,5 +128,5 @@ if (mode === 'verify') {
     throw error
   }
   writeJson('site-state.json', desired, true)
-  console.log(`Assembled production and ${previews.length} current PR previews`)
+  console.log(`Assembled production and ${desired.previews.length} current PR previews`)
 }

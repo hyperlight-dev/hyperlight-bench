@@ -102,6 +102,7 @@ One GitHub Pages deployment contains separate HTML, JavaScript, and CSS builds:
 Previews show UI changes before merge, even when pending benchmark results are unavailable.
 After a PR is merged or closed, the next successful Pages deployment removes its preview.
 The preview URL then returns 404.
+Pages skips a preview whose build lacks `index.html`, contains symbolic links, hidden or special files, or reserved directories, or exceeds 100 MB or 10,000 files. Production and other previews still deploy.
 
 ## CI Rules
 

@@ -181,8 +181,9 @@ test('Pages assembly keeps pending data inside its preview', async context => {
   assert.equal(existsSync(resolve(closedOutput, 'previews/pr-7')), false)
   symlinkSync(resolve(production, 'index.html'), resolve(previewDirectory, 'linked.html'))
   const unsafeOutput = resolve(temporary, 'unsafe')
-  assert.throws(() => assembleSite({ production, store, output: unsafeOutput, repository, previews: [preview] }), /symbolic link/)
-  assert.equal(existsSync(unsafeOutput), false)
+  assert.deepEqual(assembleSite({ production, store, output: unsafeOutput, repository, previews: [preview] }), [])
+  assert.equal(existsSync(resolve(unsafeOutput, 'index.html')), true)
+  assert.equal(existsSync(resolve(unsafeOutput, 'previews/pr-7')), false)
 })
 
 function fixture() {
