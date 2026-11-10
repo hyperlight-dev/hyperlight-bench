@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       trusted-sha: ${{ steps.revision.outputs.sha }}
+      marker: ${{ steps.marker.outputs.path }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -51,6 +52,13 @@ jobs:
       - run: node scripts/site-ci.ts assemble
         env:
           GH_TOKEN: ${{ github.token }}
+      # The CDN caches 404s, so each deploy check polls a path nobody requested before.
+      - id: marker
+        run: |
+          marker="deploy-marker/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "site/$marker"
+          for n in $(seq 1 30); do echo "$n" > "site/$marker/$n"; done
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site/
@@ -93,3 +101,18 @@ jobs:
       - name: Deploy current site
         id: deployment
         uses: actions/deploy-pages@v5
+      # Pages can report success and keep serving the previous deployment.
+      - name: Require Pages to serve this deployment
+        env:
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+          MARKER: ${{ needs.assemble.outputs.marker }}
+        run: |
+          for n in $(seq 1 30); do
+            if curl -fs --max-time 10 -o /dev/null "${SITE_URL%/}/$MARKER/$n"; then
+              echo "Pages serves this deployment after $n checks"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Pages still serves an older deployment. Rerun the deploy job."
+          exit 1

@@ -115,7 +115,8 @@ Pages skips a preview whose build lacks `index.html`, contains symbolic links, h
 
 Publication calls Pages after a main push or a data change. Pages also runs for
 successful preview builds and preview eligibility changes. Run Pages manually
-after a direct push to `data`.
+after a direct push to `data`. The deploy job fails if the site still serves an
+older deployment after 5 minutes. Rerun the deploy job.
 
 Publication and Pages use serial queues with up to 100 pending jobs or runs each.
 Benchmark checks ignore unrelated labels and title or body edits.
