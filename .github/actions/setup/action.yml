@@ -85,16 +85,40 @@ runs:
     shell: bash
     run: sudo chown -R "$USER" "$CARGO_HOME"
 
+  - name: Read tool versions
+    id: tool-versions
+    shell: bash
+    run: |
+      source tool-versions.sh
+      echo "cargo-hyperlight=$CARGO_HYPERLIGHT_VERSION" >> "$GITHUB_OUTPUT"
+
   - name: Restore Rust cache
     id: rust-cache
     uses: Swatinem/rust-cache@v2
     with:
-      shared-key: ${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}-${{ hashFiles('tool-versions.sh') }}
+      # cargo-hyperlight builds the dummy guest into a cached target directory.
+      shared-key: ${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}-cargo-hyperlight-${{ steps.tool-versions.outputs.cargo-hyperlight }}
+      cache-bin: false
       workspaces: |
         . -> target
         crates/handler-rs -> target
         crates/hyperlight-dummy-guest -> target
       save-if: ${{ inputs.SAVE_CACHES == 'true' }}
+
+  # Paths must match "Save Rust tools". setup-tools.sh replaces tools whose versions differ.
+  - name: Restore Rust tools
+    id: tools-cache
+    uses: actions/cache/restore@v6
+    with:
+      path: |
+        /opt/cargo/bin/cargo-hyperlight
+        /opt/cargo/bin/componentize-qjs
+        /opt/cargo/bin/hyperlight-wasm-aot
+        /opt/cargo/bin/oha
+        /opt/cargo/.crates.toml
+        /opt/cargo/.crates2.json
+      key: cargo-tools-${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tool-versions.sh') }}
+      restore-keys: cargo-tools-${{ inputs.HYPERVISOR }}-${{ inputs.CPU_VENDOR }}-${{ inputs.CACHE_SCOPE }}-${{ runner.os }}-${{ runner.arch }}-
 
   - name: Install Rust tools
     shell: bash
@@ -119,6 +143,19 @@ runs:
       
       echo "Final tool status:"
       ls -la /opt/cargo/bin/
+
+  - name: Save Rust tools
+    if: inputs.SAVE_CACHES == 'true' && steps.tools-cache.outputs.cache-hit != 'true'
+    uses: actions/cache/save@v6
+    with:
+      path: |
+        /opt/cargo/bin/cargo-hyperlight
+        /opt/cargo/bin/componentize-qjs
+        /opt/cargo/bin/hyperlight-wasm-aot
+        /opt/cargo/bin/oha
+        /opt/cargo/.crates.toml
+        /opt/cargo/.crates2.json
+      key: ${{ steps.tools-cache.outputs.cache-primary-key }}
 
   # - name: Setup KVM permissions
   #   shell: bash
