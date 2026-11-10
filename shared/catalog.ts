@@ -19,11 +19,18 @@ const definitions = [
   { id: 'wasmtime-pulley-qjs', engine: 'QuickJS', description: 'QuickJS component interpreted by Wasmtime Pulley.' },
   { id: 'hyperlight-wasm-pulley-dummy', engine: 'Rust', description: 'Rust Wasm component, Pulley interpreter, inside Hyperlight.' },
   { id: 'wasmtime-pulley-dummy', engine: 'Rust', description: 'Rust Wasm component interpreted by Wasmtime Pulley.' },
+  { id: 'hluk-dummy', engine: 'Native', description: 'Minimal hyperlight-unikraft driver answering every guest function call. Renew starts each sandbox from a snapshot.' },
+  { id: 'hluk-quickjs', engine: 'QuickJS', description: 'QuickJS in a hyperlight-unikraft guest. Renew starts each sandbox from a snapshot.' },
+  { id: 'hluk-node', engine: 'V8', description: 'Node.js in a hyperlight-unikraft guest. Renew starts each sandbox from a snapshot.' },
+  { id: 'hluk-python', engine: 'CPython', description: 'CPython in a hyperlight-unikraft guest. Renew starts each sandbox from a snapshot.' },
+  { id: 'hluk-dotnet-jit', engine: '.NET', description: 'C# compiled by Roslyn in a hyperlight-unikraft guest. Renew starts each sandbox from a snapshot.' },
+  { id: 'hluk-wasmtime-dummy', engine: 'Rust', description: 'Rust Wasm component, compiled by Wasmtime in a hyperlight-unikraft guest before the snapshot.' },
+  { id: 'hluk-wasmtime-qjs', engine: 'QuickJS', description: 'QuickJS component, compiled by Wasmtime in a hyperlight-unikraft guest before the snapshot.' },
 ]
 
 export const runtimes: Runtime[] = definitions.map(runtime => ({
   ...runtime,
-  execution: runtime.id === 'dummy' ? 'host' : ['hyperlight-dummy', 'hyperlight-js'].includes(runtime.id) ? 'native' : runtime.id.includes('pulley') ? 'wasm-pulley' : runtime.id.startsWith('hyperlight-wasm-') || runtime.id.startsWith('wasmtime-aot-') ? 'wasm-aot' : 'wasm-jit',
+  execution: runtime.id === 'dummy' ? 'host' : runtime.id.startsWith('hluk-wasmtime-') ? 'wasm-jit' : ['hyperlight-dummy', 'hyperlight-js'].includes(runtime.id) || runtime.id.startsWith('hluk-') ? 'native' : runtime.id.includes('pulley') ? 'wasm-pulley' : runtime.id.startsWith('hyperlight-wasm-') || runtime.id.startsWith('wasmtime-aot-') ? 'wasm-aot' : 'wasm-jit',
 }))
 
 export const platforms: Platform[] = [
@@ -63,4 +70,5 @@ export const publicationPolicy = {
   expectedSkus: Object.fromEntries(Object.entries(runnerPools).map(([id, runner]) => [id, runner.sku])),
 }
 
-export const serverFlavor = (runtime: string) => runtime.startsWith('hyperlight-wasm-pulley') ? 'pulley' : 'native'
+// hluk runtimes run in a binary without the classic runtimes, KVM-only on KVM (see crates/server/Cargo.toml).
+export const serverFlavor = (runtime: string, platform: string) => runtime.startsWith('hluk-') ? (platform === 'kvm' ? 'hluk-kvm' : 'hluk-mshv') : runtime.startsWith('hyperlight-wasm-pulley') ? 'pulley' : 'native'

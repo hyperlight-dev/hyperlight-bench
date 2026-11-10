@@ -1,17 +1,27 @@
 mod config;
 mod dummy;
+#[cfg(feature = "hluk")]
+mod hluk;
 mod hyperlight_dummy;
+#[cfg(feature = "classic")]
 mod hyperlight_js;
+#[cfg(feature = "classic")]
 mod hyperlight_wasm;
+#[cfg(feature = "classic")]
 mod wasmtime;
 
 pub use config::*;
 pub use dummy::DummyHandler;
+#[cfg(feature = "hluk")]
+pub use hluk::{HlukConfig, HlukGuest, HlukHandler};
 pub use hyperlight_dummy::HyperlightDummyHandler;
+#[cfg(feature = "classic")]
 pub use hyperlight_js::HyperlightJSHandler;
+#[cfg(feature = "classic")]
 pub use hyperlight_wasm::{HyperlightWASMHandler, HyperlightWasmConfig};
 use sandbox_observer::observer::CpuTimeObserver;
 use std::sync::Arc;
+#[cfg(feature = "classic")]
 pub use wasmtime::{ComponentSource, WasmtimeHandler};
 
 use crate::SandboxReuseStrategy;

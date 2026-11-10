@@ -4,6 +4,9 @@
 //! To run, do something like
 //! cargo run --example http --release -- --pool-size=4 --worker-threads=4 --sandbox-mode reuse
 
+// The classic-only paths and constants go unused in the hluk flavors.
+#![cfg_attr(not(feature = "classic"), allow(dead_code))]
+
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -285,9 +288,16 @@ async fn handler(
     pool: Arc<SandboxPool>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let res = pool.execute().await;
-    // make sure the handler ran
+    // Make sure the handler ran: the prefix most runtimes produce, else
+    // parsed (some serialize JSON with other spacing), so the fast
+    // runtimes pay no parse per request.
+    let ran = res.starts_with(r#"{"uri":"/redirected"#)
+        || serde_json::from_str::<serde_json::Value>(&res)
+            .ok()
+            .and_then(|value| value.get("uri")?.as_str().map(str::to_owned))
+            .is_some_and(|uri| uri.starts_with("/redirected"));
     assert!(
-        res.starts_with(r#"{"uri":"/redirected"#),
+        ran,
         "Expected handler to modify the URI, got: {}",
         res
     );
@@ -333,20 +343,63 @@ enum Runtime {
     HyperlightWASMDummy,
     HyperlightJS,
     Dummy,
+    HlukDummy,
+    HlukQuickjs,
+    HlukNode,
+    HlukPython,
+    HlukDotnetJit,
+    HlukWasmtimeDummy,
+    HlukWasmtimeQjs,
 }
 
+// The same handler as hyperlight-js's, in each hluk runtime's language.
+#[cfg(feature = "hluk")]
+const HLUK_JS_HANDLER: &str = "function handler(request) {
+    request.uri = '/redirected.html';
+    return request
+}";
+#[cfg(feature = "hluk")]
+const HLUK_PYTHON_HANDLER: &str = "def handler(request):
+    request['uri'] = '/redirected.html'
+    return request
+";
+#[cfg(feature = "hluk")]
+const HLUK_CSHARP_HANDLER: &str = "public class Request { public string Uri { get; set; } }
+public static class Handlers {
+    public static Request Handler(Request request) {
+        request.Uri = \"/redirected.html\";
+        return request;
+    }
+}";
+
 impl Runtime {
+    /// The server binary (build-harness.ts flavor) with this runtime in it.
+    fn flavor(self) -> &'static str {
+        let name = self.to_possible_value().unwrap().get_name().to_owned();
+        if name.starts_with("hluk-") {
+            "hluk-kvm or hluk-mshv"
+        } else if name.starts_with("hyperlight-wasm-pulley") {
+            "pulley"
+        } else {
+            "native"
+        }
+    }
+
     fn start_pool(
         self,
         pool_size: usize,
         strategy: SandboxReuseStrategy,
         observer: Option<ObserverConfig>,
     ) -> Arc<SandboxPool> {
-        use handlers::{ComponentSource::*, *};
+        #[cfg(feature = "classic")]
+        use handlers::ComponentSource::*;
+        use handlers::*;
 
+        #[cfg(feature = "classic")]
         let wasmtime = |source| {
             SandboxPool::start::<WasmtimeHandler>(pool_size, strategy, observer, source)
         };
+        #[cfg(feature = "classic")]
         let hyperlight_wasm = |artifact, memory| {
             SandboxPool::start::<HyperlightWASMHandler>(
                 pool_size,
@@ -355,23 +408,52 @@ impl Runtime {
                 HyperlightWasmConfig { artifact, memory },
             )
         };
+        #[cfg(feature = "hluk")]
+        let hluk = |rootfs, scratch_mb, guest| {
+            SandboxPool::start::<HlukHandler>(
+                pool_size,
+                strategy,
+                observer,
+                HlukConfig { rootfs, scratch_mb, guest },
+            )
+        };
+        #[cfg(feature = "hluk")]
+        let script = |source, function| HlukGuest::Script { source, function };
+        #[cfg(feature = "hluk")]
+        let component = |path| HlukGuest::Component { path };
 
         match self {
+            #[cfg(feature = "classic")]
             Self::WasmtimeJco => wasmtime(Wasm(JCO_WASM)),
+            #[cfg(feature = "classic")]
             Self::WasmtimeQjs => wasmtime(Wasm(QJS_WASM)),
+            #[cfg(feature = "classic")]
             Self::WasmtimeDummy => wasmtime(Wasm(RUST_WASM)),
+            #[cfg(feature = "classic")]
             Self::WasmtimeAOTJco => wasmtime(NativeAot(JCO_AOT)),
+            #[cfg(feature = "classic")]
             Self::WasmtimeAOTQjs => wasmtime(NativeAot(QJS_AOT)),
+            #[cfg(feature = "classic")]
             Self::WasmtimeAOTDummy => wasmtime(NativeAot(RUST_AOT)),
+            #[cfg(feature = "classic")]
             Self::WasmtimePulleyJco => wasmtime(PulleyAot(JCO_PULLEY)),
+            #[cfg(feature = "classic")]
             Self::WasmtimePulleyQjs => wasmtime(PulleyAot(QJS_PULLEY)),
+            #[cfg(feature = "classic")]
             Self::WasmtimePulleyDummy => wasmtime(PulleyAot(RUST_PULLEY)),
+            #[cfg(feature = "classic")]
             Self::HyperlightWASMJco => hyperlight_wasm(JCO_AOT, JCO_MEMORY),
+            #[cfg(feature = "classic")]
             Self::HyperlightWASMQjs => hyperlight_wasm(QJS_AOT, QJS_MEMORY),
+            #[cfg(feature = "classic")]
             Self::HyperlightWASMDummy => hyperlight_wasm(RUST_AOT, RUST_MEMORY),
+            #[cfg(feature = "classic")]
             Self::HyperlightWASMPulleyJco => hyperlight_wasm(JCO_PULLEY, JCO_PULLEY_MEMORY),
+            #[cfg(feature = "classic")]
             Self::HyperlightWASMPulleyQjs => hyperlight_wasm(QJS_PULLEY, QJS_MEMORY),
+            #[cfg(feature = "classic")]
             Self::HyperlightWASMPulleyDummy => hyperlight_wasm(RUST_PULLEY, RUST_MEMORY),
+            #[cfg(feature = "classic")]
             Self::HyperlightJS => {
                 SandboxPool::start::<HyperlightJSHandler>(pool_size, strategy, observer, ())
             }
@@ -381,6 +463,26 @@ impl Runtime {
             Self::Dummy => {
                 SandboxPool::start::<DummyHandler>(pool_size, strategy, observer, ())
             }
+            #[cfg(feature = "hluk")]
+            Self::HlukDummy => hluk("dummy.cpio", Some(64), HlukGuest::Fixed),
+            #[cfg(feature = "hluk")]
+            Self::HlukQuickjs => hluk("quickjs.cpio", None, script(HLUK_JS_HANDLER, "handler")),
+            #[cfg(feature = "hluk")]
+            Self::HlukNode => hluk("node.cpio", None, script(HLUK_JS_HANDLER, "handler")),
+            #[cfg(feature = "hluk")]
+            Self::HlukPython => hluk("python.cpio", None, script(HLUK_PYTHON_HANDLER, "handler")),
+            #[cfg(feature = "hluk")]
+            Self::HlukDotnetJit => hluk("dotnet-jit.cpio", None, script(HLUK_CSHARP_HANDLER, "Handler")),
+            #[cfg(feature = "hluk")]
+            Self::HlukWasmtimeDummy => hluk("wasmtime.cpio", None, component(RUST_WASM)),
+            #[cfg(feature = "hluk")]
+            Self::HlukWasmtimeQjs => hluk("wasmtime.cpio", None, component(QJS_WASM)),
+            #[allow(unreachable_patterns)]
+            other => panic!(
+                "{} is not in this binary: build the {} server flavor",
+                other.to_possible_value().unwrap().get_name(),
+                other.flavor()
+            ),
         }
     }
 }

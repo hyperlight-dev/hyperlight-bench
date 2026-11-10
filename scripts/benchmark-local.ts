@@ -20,13 +20,15 @@ const { values } = parseArgs({ options: {
 
 async function main() {
   if (values.help) {
-    console.log('Usage: npm run benchmark:local -- [--platform kvm|mshv3] [--runtime ID] [--smoke | --duration SECONDS --concurrency N --client-timeout SECONDS]')
+    console.log('Usage: npm run benchmark:local -- [--platform kvm|mshv3] [--runtime ID[,ID...]] [--smoke | --duration SECONDS --concurrency N --client-timeout SECONDS]')
     return
   }
   const platform = values.platform as keyof typeof runnerPools
   if (!Object.hasOwn(runnerPools, platform)) throw new Error(`Unknown platform: ${platform}`)
-  const selected = values.runtime ? runtimes.filter(runtime => runtime.id === values.runtime) : runtimes
-  if (!selected.length) throw new Error(`Unknown runtime: ${values.runtime}`)
+  const requested = values.runtime?.split(',').map(id => id.trim())
+  const unknown = requested?.filter(id => !runtimes.some(runtime => runtime.id === id)) ?? []
+  if (unknown.length) throw new Error(`Unknown runtime: ${unknown.join(', ')}`)
+  const selected = requested ? runtimes.filter(runtime => requested.includes(runtime.id)) : runtimes
   const positive = (input: string | undefined, fallback: number, name: string) => {
     const value = input === undefined ? fallback : Number(input)
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`)
@@ -40,7 +42,7 @@ async function main() {
     clientTimeoutSeconds: values.smoke ? 120 : values['client-timeout'] === undefined ? benchmark.settings.clientTimeoutSeconds : positive(values['client-timeout'], 120, 'Client timeout'),
     ...(values.smoke ? { requestCount: 1 } : {}),
   }
-  if (selected.some(runtime => runtime.id.startsWith('hyperlight-'))) {
+  if (selected.some(runtime => runtime.id.startsWith('hyperlight-') || runtime.id.startsWith('hluk-'))) {
     accessSync(platform === 'kvm' ? '/dev/kvm' : '/dev/mshv', constants.R_OK | constants.W_OK)
   }
   const runner = await runnerMetadata(platform, true)

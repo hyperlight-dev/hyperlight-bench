@@ -4,7 +4,8 @@
 
 HTTP benchmarks and a results dashboard for Hyperlight.
 Compare throughput, latency, and memory use across JavaScript and WebAssembly
-runtimes on Linux KVM and MSHV.
+runtimes on Linux KVM and MSHV, and against [hyperlight-unikraft](https://github.com/hyperlight-dev/hyperlight-unikraft)
+(hluk) guests running QuickJS, Node.js, CPython, C# and Wasmtime.
 
 Benchmarks cover three sandbox lifecycle strategies: Renew, Restore, and Reuse.
 
@@ -30,7 +31,7 @@ npm run benchmark:local -- --platform kvm
 npm run dev:local
 ```
 
-This measures all 54 KVM configurations and serves their results locally.
+This measures all 75 KVM configurations and serves their results locally.
 Add `--smoke` to verify every configuration with one measured request each.
 
 ## Documentation

@@ -65,7 +65,7 @@ build-benchmark-artifacts:
 
 # Start a built server. Hyperlight Pulley runtime IDs select the Pulley binary.
 run-server runtime strategy:
-    ./artifacts/bin/{{ if runtime =~ '^hyperlight-wasm-pulley' { 'pulley' } else { 'native' } }}/http-bench --runtime "{{runtime}}" --strategy "{{strategy}}"
+    ./artifacts/bin/{{ if runtime =~ '^hyperlight-wasm-pulley' { 'pulley' } else if runtime =~ '^hluk-' { 'hluk-kvm' } else { 'native' } }}/http-bench --runtime "{{runtime}}" --strategy "{{strategy}}"
 
 # Send HTTP load to an existing server and wait for in-flight requests.
 run-http-load url="http://127.0.0.1:3000" duration="10s" output="perf.json":
@@ -90,7 +90,7 @@ run-local-benchmark runtime strategy timeout-ms="1000" timeout-check-interval-ms
     # launch server in background and capture PID
 
     export TIMEOUT='--with-timeout --timeout-ms={{timeout-ms}} --timeout-check-interval-ms={{timeout-check-interval-ms}}'
-    ./artifacts/bin/{{ if runtime =~ '^hyperlight-wasm-pulley' { 'pulley' } else { 'native' } }}/http-bench --runtime "{{runtime}}" --strategy "{{strategy}}" $TIMEOUT &
+    ./artifacts/bin/{{ if runtime =~ '^hyperlight-wasm-pulley' { 'pulley' } else if runtime =~ '^hluk-' { 'hluk-kvm' } else { 'native' } }}/http-bench --runtime "{{runtime}}" --strategy "{{strategy}}" $TIMEOUT &
 
     SERVER_PID=$!
 
