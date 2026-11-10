@@ -102,6 +102,7 @@ One GitHub Pages deployment contains separate HTML, JavaScript, and CSS builds:
 Previews show UI changes before merge, even when pending benchmark results are unavailable.
 After a PR is merged or closed, the next successful Pages deployment removes its preview.
 The preview URL then returns 404.
+Pages skips a preview whose build lacks `index.html`, contains symbolic links, hidden or special files, or reserved directories, or exceeds 100 MB or 10,000 files. Production and other previews still deploy.
 
 ## CI Rules
 
@@ -124,7 +125,7 @@ Benchmark checks ignore unrelated labels and title or body edits.
 * GitHub Actions must use **Require approval for all external contributors**. **Approve and run** authorizes pending benchmark archival and serving preview JavaScript from that revision. Collaborators run automatically.
 * PR jobs use read-only repository permissions. The separate `workflow_run` publishers execute `main` code with their own tokens.
 * Benchmark Publication uses `contents: write` and `statuses: write`. It commits to `data` as `github-actions[bot]` and restricts write paths in code.
-* Pages handles PR metadata with `pull_request_target` and executes only `main` code.
+* Pages runs only `main` code. PR Preview and PR Preview Sync trigger it through `workflow_run`.
 * Pages uses `pages: write` and `id-token: write`. Configure Pages for GitHub Actions and restrict the `github-pages` environment to `main`.
 * Publishers validate PR artifacts as untrusted input. Artifact validation and a successful workflow do not prove measurements are genuine. Publishers do not execute artifact scripts or restore PR caches.
 * PRs can change workflows and check scripts. Inspect those changes before allowing execution or merging. Self-hosted runners must be disposable and isolated from credentials and sensitive networks.

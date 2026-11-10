@@ -47,12 +47,13 @@ export function assembleSite(options: {
   output: string,
   repository: string,
   previews: (z.infer<typeof previewBuildSchema> & { directory: string, includePending: boolean })[],
-}) {
+}): number[] {
   if (existsSync(options.output)) throw new Error('Site output must be a new directory')
   const index = historyIndexSchema.parse(readOptionalJson(resolve(options.store, 'index.json')) ?? { schemaVersion: 1, runs: [] })
   if (index.preview) throw new Error('Production history must not contain preview metadata')
   const published = index.runs.map(entry => parseHistoryRun(readJson(resolve(options.store, historyRunPath(entry))), entry))
   const seen = new Set<number>()
+  const included: number[] = []
   function serveData(destination: string, bundles: RunBundle[], preview?: { number: number, head: string, pending: { id: string, attempt: number } | null }) {
     const catalogs = new Map(groupHistories(bundles).flatMap(history => {
       const { runtimes, platforms, metrics } = validateHistory(history)
@@ -99,11 +100,21 @@ export function assembleSite(options: {
       }
       const destination = resolve(options.output, 'previews', `pr-${preview.number}`)
       mkdirSync(resolve(options.output, 'previews'), { recursive: true })
-      copyBuild(preview.directory, destination)
+      try {
+        copyBuild(preview.directory, destination)
+      } catch (error) {
+        rmSync(destination, { recursive: true, force: true })
+        // Escaping stops artifact file names from injecting workflow commands.
+        const message = String((error as Error).message).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+        console.log(`::warning::PR ${preview.number} preview skipped: ${message}`)
+        continue
+      }
       serveData(destination, bundles, { number: preview.number, head: preview.head, pending })
+      included.push(preview.number)
     }
   } catch (error) {
     rmSync(options.output, { recursive: true, force: true })
     throw error
   }
+  return included
 }
