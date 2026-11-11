@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "id": "43065873762",
+    "attempt": 3
+  },
+  "pullRequest": {
+    "repository": "hyperlight-dev/hyperlight-bench",
+    "number": 46,
+    "head": "de455e8a9f1528afb1f8f2f1e06a2a5e56ae0f73",
+    "base": "467360f19617f2a257ca10b00ff80313f4a6f71d"
+  },
+  "merge": {
+    "sha": "5691d60843765d7e482e527113d12cfc907a0914",
+    "tree": "99acbe1b42fd31dc7662ace8f71138390f26664e",
+    "mergedAt": "2026-11-11T18:25:42Z",
+    "message": "Update Hyperlight to 0.18, hyperlight-js 0.5 and hyperlight-wasm 0.16 (#46)\n\nUpdate Hyperlight to 0.18.0, hyperlight-js to 0.5.0 and hyperlight-wasm\nto 0.16.0.\n\n* hyperlight-js 0.5.0 and hyperlight-wasm 0.16.0 require Hyperlight\n0.18, so 0.19.0 waits for their next releases.\n* Pin Wasmtime 36.0.18 and Cranelift 0.123.18 to match\nhyperlight-wasm-aot 0.16.0, which compiles the AOT artifacts.\n* Use typed hyperlight-wasm snapshots and the new `Sandbox` name.\n* Reduce the dummy guest to its `#[guest_function]` handler. 0.18\nprovides defaults for the entry points it defined.\n\nSigned-off-by: Ludvig Liljenberg <4257730+ludfjig@users.noreply.github.com>"
+  }
+}
