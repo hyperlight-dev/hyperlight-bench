@@ -107,7 +107,8 @@ Pages skips a preview whose build lacks `index.html`, contains symbolic links, h
 ## CI Rules
 
 * `benchmarks: skip` replaces publishable measurements with one-request smoke coverage on KVM and MSHV. Smoke results are not published. Dependabot applies the label automatically.
-* Required checks evaluate the current PR policy on every subscribed event. Label and description edits restart the benchmark workflow. Measurements run unless `benchmarks: skip` is present.
+* Benchmark Policy and Benchmark run when a PR opens, reopens, gets new commits or changes labels. Any label change restarts measurement. Measurements run unless `benchmarks: skip` is present.
+* A PR retargeted to `main` needs a new push before its required checks run.
 * Each of the 36 measurement jobs runs all three strategies sequentially with a fresh server process for each. Retrying a job repeats its three strategies.
 * Preview builds run independently of benchmarks. Draft PRs have no preview.
 * Production uses published history. Previews include matching pending results when available.
@@ -119,7 +120,6 @@ after a direct push to `data`. The deploy job fails if the site still serves an
 older deployment after 5 minutes. Rerun the deploy job.
 
 Publication and Pages use serial queues with up to 100 pending jobs or runs each.
-Benchmark checks ignore unrelated labels and title or body edits.
 
 ## Security
 
