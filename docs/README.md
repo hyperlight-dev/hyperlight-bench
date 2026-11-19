@@ -48,6 +48,7 @@ npm test
 npm run build
 ```
 
+The Tests workflow runs `npm test` on PRs and pushes to `main`.
 Tests simulate GitHub. Validate permissions and deployment changes in Actions.
 
 ## Workflow Overview

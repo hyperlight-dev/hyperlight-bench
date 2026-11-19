@@ -641,26 +641,36 @@ test('CI archival and promotion with simulated GitHub and Git', async context =>
   })
   await context.test('incomplete artifacts and untrusted runner SKUs cannot archive', async () => {
     const measurement = bundle.measurements.pop()!
-    await assert.rejects(main(), /Missing successful configurations/)
-    bundle.measurements.push(measurement)
+    try {
+      await assert.rejects(main(), /Missing successful configurations/)
+    } finally {
+      bundle.measurements.push(measurement)
+    }
     const runner = bundle.runners[0]!
     const originalSku = runner.sku
     const originalExpectedSku = runner.expectedSku
     runner.sku = 'untrusted-sku'
     runner.expectedSku = 'untrusted-sku'
-    await assert.rejects(main(), /Runner SKU differs from publication policy/)
-    runner.sku = originalSku
-    runner.expectedSku = originalExpectedSku
+    try {
+      await assert.rejects(main(), /Runner SKU differs from publication policy/)
+    } finally {
+      runner.sku = originalSku
+      runner.expectedSku = originalExpectedSku
+    }
     assert.equal(downloads, 2)
     assert.equal(pushes, 0)
   })
   await context.test('label changes prevent archival and promotion', async () => {
+    clearStore()
     pr.labels = [{ name: 'benchmarks: skip' }]
-    await main()
-    assert.equal(downloads, 0)
-    assert.equal(pushes, 0)
-    assert.equal(existsSync(outputPath), false)
-    pr.labels = []
+    try {
+      await main()
+      assert.equal(downloads, 0)
+      assert.equal(pushes, 0)
+      assert.equal(existsSync(outputPath), false)
+    } finally {
+      pr.labels = []
+    }
   })
   await context.test('cache-warming completions do not archive results', async () => {
     clearStore()
