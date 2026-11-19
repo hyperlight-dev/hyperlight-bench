@@ -285,6 +285,10 @@ accessible through the `history=<version>` query parameter, for example
 comparison. Shared links preserve the selected groups. Downloads contain only
 the selected groups' visible runs.
 
+The chart shows the last 14 runs of the selected groups by default. Choose
+All runs in the range menu, or add `range=all`, to show every run. A `run=<key>`
+link to a run outside the requested range widens the range to include that run.
+
 Duplicate run identities and mixed local, synthetic, or published sources fail
 validation. Conflicting definitions within a version also fail validation. No archived bundles
 are rewritten when a new group is published.

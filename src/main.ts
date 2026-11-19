@@ -10,6 +10,8 @@ import { catalog } from '../shared/catalog.ts'
 import { runSelectionSchema } from '../shared/results.ts'
 import type { Dataset, MetricId, PlatformId, Strategy } from './data'
 
+type HistoryRange = 7 | 14 | 'all'
+
 Chart.register(...registerables)
 Chart.defaults.font.family = 'IBM Plex Sans'
 Chart.defaults.color = '#626b66'
@@ -66,7 +68,8 @@ function renderDashboard(data: Dataset) {
   const defaultMetric = data.metrics.find(metric => metric.id === 'rps')?.id ?? data.metrics[0]!.id
   let strategy: Strategy = ['reload', 'reuse', 'new'].includes(params.get('strategy') ?? '') ? params.get('strategy') as Strategy : 'reload'
   let metricId: MetricId = data.metrics.some(metric => metric.id === params.get('metric')) ? params.get('metric') as MetricId : defaultMetric
-  let range = params.get('range') === '7' ? 7 : 14
+  const parseRange = (value: string | null): HistoryRange => value === 'all' ? 'all' : value === '7' ? 7 : 14
+  let range = parseRange(params.get('range'))
   const selectedRuntimes = new Set((params.has('runtimes') ? params.get('runtimes')!.split(',') : defaultRuntimes).filter(id => data.runtimes.some(runtime => runtime.id === id)))
   const selectedPlatforms = new Set<PlatformId>((params.has('platforms') ? params.get('platforms')!.split(',') : [defaultPlatform]).filter(id => data.platforms.some(platform => platform.id === id)) as PlatformId[])
   const hardwareColors = (values: (string | null | undefined)[], tints: string[]) => new Map(
@@ -76,6 +79,8 @@ function renderDashboard(data: Dataset) {
   const cpuColors = hardwareColors(data.runs.flatMap(run => run.runners.map(runner => runner.cpu.model)), ['#e3edf9', '#e6f1e7', '#dcf0ef'])
   const skuColors = hardwareColors(data.runs.flatMap(run => run.runners.map(runner => runner.sku)), ['#f8ead5', '#f2e5ef', '#f8e3df'])
   let selectedRunId = data.runs.find(run => run.id === params.get('run'))?.id ?? data.runs.at(-1)?.id ?? ''
+  const selectedRunAge = data.runs.length - data.runs.findIndex(run => run.id === selectedRunId)
+  if (range !== 'all' && selectedRunAge > range) range = selectedRunAge <= 14 ? 14 : 'all'
   let chart: Chart<'line'> | undefined
   let tooltipMode = 'ranked'
   let snapshotMode = 'ranked'
@@ -145,7 +150,7 @@ function renderDashboard(data: Dataset) {
           <div id="hardware-warning" class="hardware-warning" hidden><i data-lucide="alert-triangle"></i><div>Different Azure VM sizes and generations. Results reflect both hardware and software differences.</div></div>
           <div class="metrics" role="tablist" aria-label="Metric">${data.metrics.map(metric => `<button role="tab" data-metric="${metric.id}">${escapeHtml(metric.label)}</button>`).join('')}</div>
           <section class="chart-section" aria-labelledby="chart-title">
-            <div class="chart-heading"><div><h2 id="chart-title"></h2><p><span id="metric-direction"></span><span class="separator">·</span><span id="series-count"></span></p><p>Hover for values. Click to select a commit.</p></div><div class="chart-actions"><label for="range" class="sr-only">History range</label><select id="range"><option value="14">All 14 commits</option><option value="7">Last 7 commits</option></select><button id="download" class="icon-button" aria-label="Download selected results"><i data-lucide="download"></i></button><button id="share" class="icon-button" aria-label="Copy view link"><i data-lucide="link"></i></button></div></div>
+            <div class="chart-heading"><div><h2 id="chart-title"></h2><p><span id="metric-direction"></span><span class="separator">·</span><span id="series-count"></span></p><p>Hover for values. Click to select a commit.</p></div><div class="chart-actions"><label for="range" class="sr-only">History range</label><select id="range"></select><button id="download" class="icon-button" aria-label="Download selected results"><i data-lucide="download"></i></button><button id="share" class="icon-button" aria-label="Copy view link"><i data-lucide="link"></i></button></div></div>
             <div class="chart-wrap"><canvas id="chart" role="img" aria-label="Benchmark history. Values are available in the results table below."></canvas><div id="chart-tooltip" class="chart-tooltip" hidden aria-hidden="true"></div><div id="empty-chart" hidden>Select at least one runtime and platform.</div></div>
             <div class="chart-caption"><span id="chart-period"></span></div>
             <div id="chart-legend" class="chart-legend"></div>
@@ -187,7 +192,7 @@ function renderDashboard(data: Dataset) {
   }
   const color = (runtimeId: string) => palette[data.runtimes.findIndex(runtime => runtime.id === runtimeId) % palette.length]!
   const metric = () => data.metrics.find(entry => entry.id === metricId)!
-  const visibleRuns = () => data.runs.slice(-range)
+  const visibleRuns = () => range === 'all' ? data.runs : data.runs.slice(-range)
   const rowsFor = (runId: string) => data.measurements.filter(entry => entry.runId === runId && entry.strategy === strategy && selectedRuntimes.has(entry.runtimeId) && selectedPlatforms.has(entry.platformId) && entry.values[metricId] !== undefined)
     .sort((first, second) => metric().direction === 'higher' ? second.values[metricId] - first.values[metricId] : first.values[metricId] - second.values[metricId])
   const format = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: metricId === 'rps' ? 0 : metricId === 'memory' ? 1 : 3 }).format(value)
@@ -319,9 +324,9 @@ function renderDashboard(data: Dataset) {
     element('#hardware-warning').hidden = selectedPlatforms.size < 2
     element('#chart-title').textContent = currentMetric.title
     element('#metric-direction').textContent = `${currentMetric.direction === 'higher' ? 'Higher' : 'Lower'} is better · ${currentMetric.unit}`
-    element<HTMLOptionElement>('#range option[value="14"]').textContent = `Last ${Math.min(14, data.runs.length)} runs`
-    element<HTMLOptionElement>('#range option[value="7"]').textContent = `Last ${Math.min(7, data.runs.length)} runs`
-    element<HTMLSelectElement>('#range').value = String(range)
+    const rangeOptions = ([14, 7] as const).filter(count => count < data.runs.length)
+    element<HTMLSelectElement>('#range').innerHTML = `<option value="all">All ${data.runs.length} runs</option>${rangeOptions.map(count => `<option value="${count}">Last ${count} runs</option>`).join('')}`
+    element<HTMLSelectElement>('#range').value = range !== 'all' && rangeOptions.includes(range) ? String(range) : 'all'
     element<HTMLSelectElement>('#run').innerHTML = runs.map(run => `<option value="${run.id}">${runLabel(run)}${data.preview?.pending && run.id === `${data.preview.pending.id}.${data.preview.pending.attempt}` ? ' · Pending PR' : ''}${run.id === data.runs.at(-1)!.id ? ' · Latest' : ''}</option>`).join('')
     element('#chart-period').textContent = `${runs[0]!.date.slice(0, 10)} / ${runs.at(-1)!.date.slice(0, 10)}`
     const series = data.runtimes.filter(runtime => selectedRuntimes.has(runtime.id)).flatMap(runtime => data.platforms.filter(platform => selectedPlatforms.has(platform.id)).map(platform => ({
@@ -551,7 +556,7 @@ function renderDashboard(data: Dataset) {
     input.checked ? selectedPlatforms.add(input.value as PlatformId) : selectedPlatforms.delete(input.value as PlatformId)
     update()
   })
-  element<HTMLSelectElement>('#range').onchange = event => { range = Number((event.target as HTMLSelectElement).value); update() }
+  element<HTMLSelectElement>('#range').onchange = event => { range = parseRange((event.target as HTMLSelectElement).value); update() }
   element<HTMLSelectElement>('#run').onchange = event => { selectedRunId = (event.target as HTMLSelectElement).value; updateSnapshot() }
   let toastTimer: ReturnType<typeof setTimeout>
   function toast(message: string) {
